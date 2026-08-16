@@ -1,0 +1,59 @@
+flowchart LR
+    UC([Upstream Client]) --> BUS[("Ingest bus<br/>HTTP / NATS")] --> MY
+
+    subgraph app["App team"]
+        MY[MYSVC]
+    end
+
+    subgraph serve["MSP · Serving & Routing"]
+        direction TB
+        RT["Router"]
+        BLUE["msp-blue: primary"]
+        GREEN["msp-green: shadow/canary"]
+        SW["Shadow Worker"]
+        RAW[("msp.raw-requests")]
+        RT --> BLUE
+        RT -->|canary| GREEN
+        RT -.-> RAW --> SW --> GREEN
+    end
+    MY -->|gRPC| RT
+
+    subgraph eval["MSP · Evaluation & Guardrail"]
+        direction TB
+        L[("L1/L2 store")]
+        EV["Evaluation"]
+        MX[("Metrics L3")]
+        GD["Guardrail"]
+        L --> EV --> MX --> GD
+    end
+    RAW --> L
+
+    subgraph ctl["MSP · Delivery & Control"]
+        direction TB
+        API["msp-api"]
+        GIT[("GitOps repo")]
+        SC["Sync Controller + gate"]
+        API -->|PR| GIT
+    end
+    GIT -->|deploy| BLUE & GREEN
+    SC --> GREEN
+    GD -->|rollback PR| GIT
+    GT[("Ground truth · Q2")] --> EV
+    GD ~~~ GT
+
+    SCI([Scientist]) --> API
+    SCI --> MC([Model Center]) --> SC
+
+    classDef svc fill:#dae8fc,stroke:#6c8ebf,color:#1a1a1a
+    classDef data fill:#e8e8e8,stroke:#888,stroke-dasharray: 3 3,color:#1a1a1a
+    classDef actor fill:#fff2cc,stroke:#d6b656,color:#1a1a1a
+    classDef prod fill:#cfe2ff,stroke:#3b6fbf,color:#1a1a1a
+    classDef exp fill:#d5e8d4,stroke:#82b366,color:#1a1a1a
+    classDef guard fill:#f8cecc,stroke:#b85450,color:#1a1a1a
+
+    class MY,RT,SW,EV,API,SC svc
+    class BUS,RAW,L,MX,GIT,GT data
+    class UC,SCI,MC actor
+    class BLUE prod
+    class GREEN exp
+    class GD guard
