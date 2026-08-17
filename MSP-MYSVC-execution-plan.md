@@ -11,10 +11,10 @@
 | 項目 | 負責 | 擋住什麼 |
 |---|---|---|
 | Q7 容量參數(MSP §1.5) | J | MSP Phase 2 起的所有 sizing |
-| OQ-1 同 device 順序性(問製程端) | B + J | MYSVC Phase A 派發模型 |
+| OQ-1 同 device 順序性(問製程端) | B + J | ~~Phase A~~ 已不擋(D7 預設從嚴);答案僅影響後續鬆綁 |
 | **前後處理盤點**:既有 MYSVC 內版本相依邏輯清單 + 搬遷量估算(X) | B + scientist 代表 | 各模型 onboard 時程;X 為全案最大未知 |
 | OQ-2/OQ-3(subject 結構、下游 upsert 現況) | B | MYSVC Phase B/C 細節 |
-| 決定:MYSVC 全面重構 vs 增量改(本計畫假設**全面重構**) | J | MYSVC 全線 |
+| ~~決定:MYSVC 全面重構 vs 增量改~~ **已決議:全面重構**(MYSVC-SPEC D6,2026-08-18) | J | MYSVC 全線 |
 
 ## 2. 雙軌時程(日曆週,含 auto-loop + review 紀律)
 

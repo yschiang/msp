@@ -87,8 +87,8 @@
 
 ### 3.4 Subject 設計
 
-- Input:`mysvc.input.{device_id}`(或既有 subject 結構,以 device id 可提取為原則)
-- 順序性依 §6 決策;subject 粒度支援未來 per-device 的 canary 指派(§8.2)
+- Input:既有 subject 結構**已含可提取的 device id**(OQ-2 已確認,2026-08-18);Phase B 實作時記錄實際 subject pattern 與提取規則於 CLAUDE.md
+- 順序性依 §6(D7 嚴格順序);subject 粒度支援 per-device 的 canary 指派(§8.2)
 
 ---
 
@@ -117,15 +117,15 @@
 ## 6. 併發與順序模型
 
 - Consumer/fetch 執行緒只收不算;處理派發至 worker(**Java 21 virtual threads**,IO-bound 適用),max in-flight 上限即 backpressure
-- **同 device 順序性 = 開放問題 OQ-1(§12)**,需製程端確認:
-  - 若需嚴格順序:per-key(device_id)串行派發(key-based executor),跨 device 併發
-  - 若可容忍亂序:全併發,吞吐最佳
-- 注意:JetStream 重投本身會造成亂序;若 OQ-1 答案為「需嚴格順序」,重投策略需一併設計(同 key 阻塞等待重投完成)
+- **同 device 順序性:預設嚴格順序**(D7,2026-08-18)——per-key(device_id)串行派發(key-based executor),跨 device 併發;重投策略同步設計(同 key 阻塞等待重投完成)。OQ-1 保留為「製程端確認可亂序後鬆綁」(鬆綁 = 刪串行約束,低成本;反向為重設計,故預設從嚴)
 
 ## 7. 冪等與去重
 
 - 冪等 key:訊息內業務 id(建議)或 JetStream stream sequence
-- 下游寫入一律 upsert by 冪等 key;無法 upsert 的下游前置去重表(key + TTL ≥ AckWait × MaxDeliver 時間窗)
+- **選型階梯**(OQ-3 盤點完成後對號入座,優先序由上而下):
+  1. 下游為 DB 且有業務唯一鍵 → upsert by 冪等 key(零額外元件)
+  2. 下游為 topic → 要求最終消費端冪等(去重推到最終狀態落地點)
+  3. 以上皆不可 → MYSVC 前置去重表(key + TTL ≥ AckWait × MaxDeliver 時間窗)——最後手段,避免無謂養狀態
 - 重複到達視為正常事件(at-least-once 的代價),計 metrics 不告警
 
 ## 8. 發布管理
@@ -201,11 +201,13 @@
 | D3 | MYSVC → Router 用 gRPC(MSP Q6);Java/SpringBoot,grpc-java |
 | D4 | At-least-once + 冪等;explicit ack,處理完成才 ack |
 | D5 | 版本相依前/後處理不得存在於 MYSVC(歸 model image) |
+| D6 | **全面重構**(非增量改,2026-08-18):新六邊形骨架起步,以新舊雙跑比對輸出驗證(§8.3/§8.4 架構支援)。理由:既有測試薄弱時,增量改每步無安全網,雙跑比對反而更安全 |
+| D7 | **順序性預設從嚴**(2026-08-18):per-device 串行派發 + 重投同 key 阻塞;製程端確認可亂序後鬆綁(§6)。鬆綁是刪代碼,反向是重設計 |
 
 ### 12.2 開放問題
 
 | # | 問題 | 影響 |
 |---|---|---|
-| OQ-1 | 同 device 的資料是否需嚴格順序處理?(需製程端確認) | §6 派發模型、重投策略 |
-| OQ-2 | 既有 subject 結構是否含可提取的 device id | §3.4、§8.2 canary 指派 |
-| OQ-3 | 下游寫入目標現況(topic/DB)與可否 upsert | §7 去重機制選型 |
+| OQ-1 | 製程端確認同 device 可否亂序(可則鬆綁 §6 串行約束;預設從嚴已定 D7,不擋 Phase A) | §6 吞吐最佳化 |
+| ~~OQ-2~~ | 已關閉(2026-08-18):subject 含 device id(§3.4) | — |
+| OQ-3 | 下游寫入目標現況(topic/DB)與可否 upsert——**待盤點現行輸出點**;答案依 §7 選型階梯對號入座 | §7 去重機制選型(擋 Phase C) |
