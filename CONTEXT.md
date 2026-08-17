@@ -44,6 +44,11 @@
 - **Unlabeled**：超過時限仍 join 不到 ground truth 的預測。unlabeled 比例本身是指標。
 - **Guardrail**：canary 期間的自動監控與止損機制。觸發後準備 rollback，由人核准生效。
 
+## 實作 effort（wayfinder map #1）
+
+- **Stand-in（替身）**：外部交付（example model、Q7 容量數字、ground truth、下游寫入目標）未到位前，由平台側自產的可運行替代品。替身的定案視同決策；真件到達後以新 ticket 替換，不原地覆寫。
+- **Reference build**：在本機環境（kind + docker-compose）跑通兩份 spec 全部驗收的實作。接真 infra 屬另一 effort，不在本詞所指範圍內。
+
 ## 詞彙紀律
 
 - 「上線」一律指 **promotion 至 primary**；shadow 開跑不叫上線。
