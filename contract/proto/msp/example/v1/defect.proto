@@ -1,0 +1,14 @@
+syntax = "proto3";
+package msp.example.v1;
+option go_package = "github.com/yschiang/msp/msp/gen/examplev1;examplev1";
+option java_multiple_files = true;
+option java_package = "io.msp.gen.example.v1";
+
+message DefectInput {
+  string wafer_id = 1;
+  repeated float features = 2;
+}
+message DefectOutput {
+  string label = 1;   // "defect" | "ok"
+  float score  = 2;
+}

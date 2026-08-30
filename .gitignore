@@ -1,0 +1,5 @@
+bin/
+contract/java/target/
+__pycache__/
+*.pyc
+.superpowers/
