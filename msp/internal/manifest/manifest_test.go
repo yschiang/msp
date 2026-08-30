@@ -22,10 +22,11 @@ func TestSchemaCopyMatchesCanonical(t *testing.T) {
 	}
 }
 
-// specSample is the model-manifest.yaml sample from MSP-SPEC-001 §4.2, quoted
-// verbatim -- including its original (non-English) explanatory comments, which
-// are part of the quoted spec text. Every other test case is derived from it by
-// a single targeted edit, so a failure points at exactly one constraint.
+// specSample is the model-manifest.yaml sample from MSP-SPEC-001 §4.2. Every
+// key, value and structure is byte-identical to the spec; only the explanatory
+// YAML comments are translated to English. Every other test case is derived
+// from it by a single targeted edit, so a failure points at exactly one
+// constraint.
 const specSample = `apiVersion: msp/v1
 kind: ModelManifest
 model:
@@ -35,7 +36,7 @@ model:
 contract:
   protocol: grpc
   port: 8080
-  inputSchema:            # protobuf descriptor 或 JSON Schema 擇一
+  inputSchema:            # either a protobuf descriptor or a JSON Schema
     type: protobuf
     descriptor: /opt/msp/schemas/input.desc
     messageType: fab.defect.v2.WaferImage
@@ -47,14 +48,15 @@ runtime:
   resources:
     requests: {cpu: "2", memory: 4Gi, nvidia.com/gpu: 1}
     limits:   {cpu: "4", memory: 8Gi, nvidia.com/gpu: 1}
-  startupSeconds: 120     # conformance 與 readiness 的等待上限
+  startupSeconds: 120     # wait ceiling for conformance and for readiness
 comparisonPolicy: exact   # exact | numeric:<epsilon> | top-k:<k>
-                          # C6 與線上 paired diff 共用此 policy;
-                          # 非確定性模型(GPU 浮點、sampling)必須宣告非 exact
-goldenSamples:            # conformance 用的樣本,image 內附
+                          # C6 and the online paired diff share this policy;
+                          # non-deterministic models (GPU float, sampling)
+                          # must declare something other than exact
+goldenSamples:            # conformance samples, shipped inside the image
   - input: /opt/msp/golden/sample-01.bin
     output: /opt/msp/golden/expected-01.bin
-    tolerance: exact      # exact | numeric:<epsilon>,未指定則繼承 comparisonPolicy
+    tolerance: exact      # exact | numeric:<epsilon>; inherits comparisonPolicy when unset
 `
 
 // mutate returns the spec sample with one substring replaced.
@@ -78,6 +80,48 @@ func TestLoad(t *testing.T) {
 		{
 			name: "spec 4.2 sample is valid",
 			raw:  []byte(specSample),
+		},
+		// The top-level `required` list and the two consts are what stand
+		// between a broken image and a passing C1, so each gets its own row:
+		// without them a manifest missing a whole section, or declaring a
+		// future apiVersion, would sail through an msp/v1 validator. Each
+		// section is renamed rather than deleted, so the only constraint
+		// violated is the one being pinned.
+		{
+			name:    "missing model section",
+			raw:     mutate(t, "model:\n", "modelX:\n"),
+			wantErr: true,
+			wantIn:  []string{"missing properties: 'model'"},
+		},
+		{
+			name:    "missing contract section",
+			raw:     mutate(t, "contract:\n", "contractX:\n"),
+			wantErr: true,
+			wantIn:  []string{"missing properties: 'contract'"},
+		},
+		{
+			name:    "missing runtime section",
+			raw:     mutate(t, "runtime:\n", "runtimeX:\n"),
+			wantErr: true,
+			wantIn:  []string{"missing properties: 'runtime'"},
+		},
+		{
+			name:    "missing goldenSamples section",
+			raw:     mutate(t, "goldenSamples:", "goldenSamplesX:"),
+			wantErr: true,
+			wantIn:  []string{"missing properties: 'goldenSamples'"},
+		},
+		{
+			name:    "wrong apiVersion",
+			raw:     mutate(t, "apiVersion: msp/v1", "apiVersion: msp/v2"),
+			wantErr: true,
+			wantIn:  []string{"/apiVersion", `must be "msp/v1"`},
+		},
+		{
+			name:    "wrong kind",
+			raw:     mutate(t, "kind: ModelManifest", "kind: ModelDeployment"),
+			wantErr: true,
+			wantIn:  []string{"/kind", `must be "ModelManifest"`},
 		},
 		{
 			name:    "missing model.name",
@@ -120,6 +164,9 @@ func TestLoad(t *testing.T) {
 			name:    "not YAML",
 			raw:     []byte("\tnot: yaml"),
 			wantErr: true,
+			// No instance path exists for a parse failure; pin that it is
+			// reported as one rather than as a confusing schema error.
+			wantIn: []string{"model-manifest.yaml: yaml:"},
 		},
 		// The contract permits these two; rejecting them is the conformance
 		// tool's job (with an explicit "not implemented" error), not the

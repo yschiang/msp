@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -82,6 +81,11 @@ func Load(raw []byte) (*Manifest, error) {
 		return nil, fmt.Errorf("model-manifest.yaml is invalid: %s", describe(err))
 	}
 
+	// Deliberately a second, independent decode of the original bytes -- not a
+	// conversion of the tree that was just validated. The two can differ where
+	// yaml.v3 resolves implicit tags: `version: 2026-08-01` validates as the
+	// normalized string "2026-08-01T00:00:00Z" but lands here as the raw text.
+	// No field in spec §4.2 is date-shaped, so this is a note, not a defect.
 	var m Manifest
 	if err := yaml.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("model-manifest.yaml: %w", err)
@@ -116,6 +120,6 @@ func describe(err error) string {
 	walk(ve)
 
 	// Causes follow map iteration order, so sort for a stable message.
-	sort.Strings(msgs)
+	slices.Sort(msgs)
 	return strings.Join(slices.Compact(msgs), "; ")
 }
