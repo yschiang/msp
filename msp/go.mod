@@ -3,8 +3,10 @@ module github.com/yschiang/msp/msp
 go 1.23.0
 
 require (
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.12
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
