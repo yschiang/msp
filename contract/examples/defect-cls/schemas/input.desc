@@ -1,0 +1,10 @@
+
+‡
+msp/example/v1/defect.protomsp.example.v1"D
+DefectInput
+wafer_id (	RwaferId
+features (Rfeatures":
+DefectOutput
+label (	Rlabel
+score (RscoreBN
+io.msp.gen.example.v1PZ3github.com/yschiang/msp/msp/gen/examplev1;examplev1bproto3
