@@ -2,8 +2,6 @@ module github.com/yschiang/msp/msp
 
 go 1.23.0
 
-toolchain go1.23.4
-
 require (
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.12

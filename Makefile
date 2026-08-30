@@ -2,6 +2,7 @@ PROTO_DIR := contract/proto
 
 .PHONY: proto
 proto:
+	mkdir -p msp/gen contract/sdk-python
 	protoc -I $(PROTO_DIR) \
 	  --go_out=msp/gen --go_opt=module=github.com/yschiang/msp/msp/gen \
 	  --go-grpc_out=msp/gen --go-grpc_opt=module=github.com/yschiang/msp/msp/gen \
