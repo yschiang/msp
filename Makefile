@@ -22,6 +22,10 @@ descriptors:
 	  $(PROTO_DIR)/msp/example/v1/defect.proto
 	cp contract/examples/defect-cls/schemas/input.desc contract/examples/defect-cls/schemas/output.desc
 
+.PHONY: image-base
+image-base:
+	docker build -t msp-base:dev -f contract/base-image/Dockerfile contract/
+
 # Copy the canonical manifest schema over its //go:embed-ed copy. Doubles as the
 # drift check: it exits non-zero when the copy was stale, so CI can just run it.
 # (`go test ./...` catches the same drift via TestSchemaCopyMatchesCanonical.)

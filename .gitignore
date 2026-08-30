@@ -2,4 +2,6 @@ bin/
 contract/java/target/
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
 .superpowers/
