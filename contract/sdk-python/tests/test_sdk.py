@@ -7,7 +7,6 @@ status handling are exercised the way a model image runs them.
 
 from __future__ import annotations
 
-import os
 import socket
 import threading
 import time
@@ -47,6 +46,9 @@ class EchoModel(msp.BaseModel):
         self.predict_calls += 1
         if self.fail:
             raise RuntimeError("boom")
+        # Spend real time so inference_ms is a measurement the test can pin,
+        # rather than a sub-millisecond value that floors to 0.
+        time.sleep(0.005)
         parsed = defect_pb2.DefectInput()
         parsed.ParseFromString(payload)
         return defect_pb2.DefectOutput(label="defect", score=0.5).SerializeToString()
@@ -133,13 +135,12 @@ def ready_server(tmp_path_factory):
     """One loaded server shared by the request-level tests."""
     manifest_path = _write_manifest(tmp_path_factory.mktemp("model"))
     model = EchoModel()
-    # Read once at startup by the servicer, so it must be set before serve() runs.
-    os.environ["MSP_MODEL_DIGEST"] = DIGEST
-    try:
+    # Read once at startup by the servicer, so it must be set before serve()
+    # runs -- and restored afterwards, in case the dev box already set it.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("MSP_MODEL_DIGEST", DIGEST)
         stub, channel = _start(model, manifest_path)
         _wait_ready(stub)
-    finally:
-        os.environ.pop("MSP_MODEL_DIGEST", None)
     yield stub, model
     channel.close()
 
@@ -160,7 +161,8 @@ def test_valid_payload_returns_ok(ready_server):
     assert response.request_id == "req-1"
     assert response.model_name == MODEL_NAME
     assert response.model_version == MODEL_VERSION
-    assert response.inference_ms >= 0
+    # predict() sleeps 5ms, so anything under that is not a real measurement.
+    assert response.inference_ms >= 5
     output = defect_pb2.DefectOutput()
     output.ParseFromString(response.payload)
     assert output.label == "defect"
@@ -178,16 +180,21 @@ def test_unparsable_payload_is_invalid_input_and_skips_predict(ready_server):
     assert model.predict_calls == before
 
 
-def test_predict_raising_is_internal_error(ready_server):
-    stub, model = ready_server
+def test_predict_raising_is_internal_error(tmp_path):
+    # Its own server: a failing model must not be shared with the other tests.
+    model = EchoModel()
     model.fail = True
+    stub, channel = _start(model, _write_manifest(tmp_path))
     try:
+        _wait_ready(stub)
         response = stub.Predict(
             pb.PredictRequest(request_id="req-3", payload=VALID_PAYLOAD)
         )
     finally:
-        model.fail = False
+        channel.close()
     assert response.status == pb.INTERNAL_ERROR
+    assert response.request_id == "req-3"
+    assert model.predict_calls == 1
 
 
 def test_model_digest_comes_from_env(ready_server):
@@ -218,6 +225,7 @@ def test_not_ready_until_load_returns(tmp_path):
             pb.PredictRequest(request_id="req-5", payload=VALID_PAYLOAD)
         )
         assert response.status == pb.INTERNAL_ERROR
+        assert response.inference_ms == 0  # nothing was measured, nothing ran
         assert model.predict_calls == 0
 
         release.set()

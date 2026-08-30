@@ -47,8 +47,18 @@ class Servicer(pb_grpc.ModelServiceServicer):
         try:
             self._input_class().ParseFromString(request.payload)
         except Exception:
-            # ponytail: parse-failure rejection only; unknown-field strictness
-            # needs UnknownFields() walk, add if schema drift alerting demands it
+            # ponytail: parse-failure rejection only. proto3 has no required
+            # fields, so these still reach predict(): an empty payload (a
+            # message of all defaults), a serialized message of a different but
+            # wire-compatible type (this repo's own DefectOutput parses as
+            # DefectInput), unknown fields, a known field number sent with the
+            # wrong wire type (dropped silently, the field keeps its default),
+            # and NaN/inf floats. Only wire corruption, truncation and invalid
+            # UTF-8 are caught here. Strict validation (spec 4.3-5) needs a walk
+            # over google.protobuf.unknown_fields.UnknownFieldSet (the message's
+            # own UnknownFields() raises NotImplementedError on the upb runtime)
+            # plus per-field rules the manifest has no place to declare yet;
+            # add it when drift alerting demands it.
             response.status = pb.INVALID_INPUT
             return response
 

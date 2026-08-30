@@ -19,7 +19,11 @@ DEFAULT_MANIFEST_PATH = "/opt/msp/model-manifest.yaml"
 
 def load_manifest(path: str) -> dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
+        manifest = yaml.safe_load(handle)
+    # Not validation -- just so an empty or list-shaped file crashes readably.
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{path}: manifest is not a mapping")
+    return manifest
 
 
 def load_input_message_class(manifest: dict[str, Any]):
