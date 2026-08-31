@@ -171,10 +171,17 @@ func TestLoad(t *testing.T) {
 			wantIn:  []string{"/runtime/resources/limits", "minimum 1 properties"},
 		},
 		{
-			name:    "startupSeconds above 600",
-			raw:     mutate(t, "  startupSeconds: 120", "  startupSeconds: 601"),
+			// The floor is all that is left: spec §4.2 sets no ceiling, so a
+			// long-loading model may legally declare any positive budget. Zero
+			// is the one value that cannot mean anything.
+			name:    "startupSeconds below 1",
+			raw:     mutate(t, "  startupSeconds: 120", "  startupSeconds: 0"),
 			wantErr: true,
 			wantIn:  []string{"/runtime/startupSeconds"},
+		},
+		{
+			name: "startupSeconds far above the old 600 ceiling is legal",
+			raw:  mutate(t, "  startupSeconds: 120", "  startupSeconds: 3600"),
 		},
 		{
 			name:    "not YAML",

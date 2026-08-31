@@ -89,11 +89,14 @@ wait_serving() {
 
 remove_labelled_containers # leftovers from an interrupted previous run
 
-step "step 1/6: build proto, descriptors, images, Go binaries, Java bindings"
+step "step 1/6: build proto, descriptors, images, Go binaries, Java bindings; unit tests"
 # proto-check = proto + descriptors + "regeneration changed nothing that is
 # committed". Without it this step would quietly rewrite the frozen contract's
 # generated code on a host with a different protoc/grpcio-tools, and still pass.
-make proto-check image-base image-example image-probe build
+# `test` runs last of the six because it is the only one with a build
+# prerequisite: its pytest leg includes the example-image smoke test, which
+# needs image-example. Sequential make (no -j here) is what orders them.
+make proto-check image-base image-example image-probe build test
 mvn -q -f contract/java/pom.xml verify
 
 # ------------------------------------------------------------------ step 2 --

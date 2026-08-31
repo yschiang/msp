@@ -58,8 +58,7 @@
         },
         "startupSeconds": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 600
+          "minimum": 1
         }
       }
     },
