@@ -85,11 +85,19 @@ build:
 .PHONY: images
 images: image-base image-example image-probe
 
-# Everything that runs without docker: the Go tests, the Python SDK tests, and
-# the schema drift check. The example-image smoke test lives under
-# contract/examples and skips itself when docker is missing.
+# Everything that runs without docker: the Go tests and the Python SDK tests.
+# The example-image smoke test lives under contract/examples and skips itself
+# when docker is missing.
+#
+# Deliberately does NOT depend on sync-schema. The schema drift check it used
+# to bring in is already one of the Go tests below -- TestSchemaCopyMatchesCanonical
+# compares the embedded copy against the canonical file directly, with no git
+# and no writes. sync-schema instead copies the file and asks git whether HEAD
+# moved, which fails on any uncommitted schema edit even when the copy is
+# perfectly in sync, and mutates a tracked file as a side effect of running
+# tests. Run `make sync-schema` when the Go test tells you to.
 .PHONY: test
-test: sync-schema
+test:
 	cd msp && go test ./...
 	PYTHONPATH=contract/sdk-python python3 -m pytest \
 	  contract/sdk-python/tests contract/examples/defect-cls/tests

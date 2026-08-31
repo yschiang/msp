@@ -65,7 +65,9 @@ Makefile                       # top-level entry points; delegates to go/mvn/pip
   Nothing outside the acceptance gate builds or consumes them.
 - **Top-level Makefile** is the developer entry point: `make proto descriptors
   proto-check build images test phase0-accept`. CI (when it exists) calls the same
-  targets. `test` runs the Go tests, the Python tests and the schema drift check;
+  targets. `test` runs the Go tests and the Python tests — the schema drift check
+  is one of the Go tests (`TestSchemaCopyMatchesCanonical`), so `test` writes
+  nothing and needs no git; run `make sync-schema` when it tells you to;
   `images` builds all three images; `proto-check` regenerates and then asserts the
   committed generated code did not move.
 
