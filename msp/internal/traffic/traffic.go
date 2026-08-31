@@ -23,8 +23,10 @@ import (
 	"github.com/yschiang/msp/msp/internal/manifest"
 )
 
-// defaultDialTimeout bounds envelope.Dial when Config.DialTimeout is unset.
-// Not a CLI flag -- the brief's flag list does not list one.
+// defaultDialTimeout bounds envelope.Dial. Not a CLI flag -- the brief's
+// flag list does not list one -- and not a Config field either: nothing
+// needs it to vary (every test dials a local listener that succeeds in
+// microseconds), so a knob would be surface with no purpose.
 const defaultDialTimeout = 5 * time.Second
 
 // Config is the whole knob surface for a Run.
@@ -46,9 +48,6 @@ type Config struct {
 	// DeviceCount is the round-robin device pool size; device ids are
 	// dev-000 .. dev-{DeviceCount-1}.
 	DeviceCount int
-
-	// DialTimeout bounds envelope.Dial. Zero means defaultDialTimeout.
-	DialTimeout time.Duration
 }
 
 // Result is the summary of one Run: how many requests landed in each of the
@@ -87,7 +86,8 @@ type outcome struct {
 // index feed, then aggregates results from a single goroutine. It respects
 // ctx: a cancelled context stops the job feeder from handing out more work
 // and cancels any Predict already in flight, so Run returns promptly with
-// Sent < cfg.N instead of running to completion.
+// Sent < cfg.N instead of running to completion -- and returns ctx.Err() in
+// that case, so an incomplete run is never mistaken for a clean Result{}.
 func Run(ctx context.Context, cfg Config) (Result, error) {
 	if cfg.N <= 0 {
 		return Result{}, fmt.Errorf("n must be > 0, got %d", cfg.N)
@@ -110,11 +110,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("random-payload-bytes must be > 0 when golden-dir is unset, got %d", cfg.RandomPayloadBytes)
 	}
 
-	timeout := cfg.DialTimeout
-	if timeout <= 0 {
-		timeout = defaultDialTimeout
-	}
-	client, err := envelope.Dial(cfg.Target, timeout)
+	client, err := envelope.Dial(cfg.Target, defaultDialTimeout)
 	if err != nil {
 		return Result{}, fmt.Errorf("dial %s: %w", cfg.Target, err)
 	}
@@ -175,11 +171,26 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 			res.OK++
 		case servingv1.Status_INVALID_INPUT:
 			res.InvalidInput++
-		case servingv1.Status_INTERNAL_ERROR:
+		default:
+			// INTERNAL_ERROR, or -- since servingv1.Status is a wire enum
+			// Phase 1+ may extend -- any value this build doesn't recognize.
+			// Either way it is the target's fault, not a request the tool
+			// should drop from every counter: without this default, Sent
+			// would exceed OK+InvalidInput+InternalError+TransportErr, and
+			// golden mode's Failed check (which only looks at
+			// InvalidInput/InternalError) would silently pass a response it
+			// could not classify.
 			res.InternalError++
 		}
 	}
 	res.P50, res.P99 = percentiles(latencies)
+	if res.Sent < cfg.N {
+		// The only way fewer than cfg.N requests were sent is that ctx was
+		// (or became) done and the job feeder stopped early -- Run must not
+		// report this as success by omission (Failed only inspects the
+		// outcome counters, and an unsent request has no outcome to count).
+		return res, ctx.Err()
+	}
 	return res, nil
 }
 
@@ -211,6 +222,19 @@ func payloadFor(cfg Config, goldens [][]byte, idx int) []byte {
 // (verifying outputs against expected is Compare's job, Task 8's, not this
 // tool's) -- that requirement doubles as a sanity check that the golden dir
 // is well-formed.
+//
+// SPEC-GAP: -golden-dir only recognizes files named sample-*/expected-*, a
+// convention that exists in contract/examples/defect-cls/make_goldens.py and
+// nowhere in contract/manifest.schema.json. A model whose manifest legally
+// declares e.g. /opt/msp/golden/in-01.bin cannot be driven by -golden-dir --
+// the glob below simply won't match it, and loadGoldenPayloads returns "no
+// golden samples found". The real fix is a -manifest flag that reads a
+// model's actual model-manifest.yaml (one is already sitting one directory
+// above the golden dir, at contract/examples/defect-cls/model-manifest.yaml,
+// declaring these exact four paths) and calls LoadGoldens with it directly,
+// no synthesized Manifest required. Not implemented: the brief's flag list
+// does not include -manifest, and every fixture this tool is asked to drive
+// in Phase 0 happens to follow the sample-*/expected-* convention.
 func loadGoldenPayloads(dir string) ([][]byte, error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "sample-*"))
 	if err != nil {

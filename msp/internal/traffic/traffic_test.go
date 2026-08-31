@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -96,7 +97,6 @@ func TestRunRandomPayloadAllOK(t *testing.T) {
 		Concurrency:        4,
 		RandomPayloadBytes: 16,
 		DeviceCount:        10,
-		DialTimeout:        2 * time.Second,
 	}
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
@@ -134,7 +134,6 @@ func TestRunDeviceRoundRobinIsDeterministic(t *testing.T) {
 		Concurrency:        4,
 		RandomPayloadBytes: 8,
 		DeviceCount:        3,
-		DialTimeout:        2 * time.Second,
 	}
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
@@ -174,7 +173,6 @@ func TestRunGoldenModeCyclesInputsDeterministically(t *testing.T) {
 		Concurrency: 2,
 		GoldenDir:   exampleGoldenDir,
 		DeviceCount: 10,
-		DialTimeout: 2 * time.Second,
 	}
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
@@ -201,17 +199,9 @@ func TestRunGoldenModeCyclesInputsDeterministically(t *testing.T) {
 	for _, c := range payloadCounts {
 		counts = append(counts, c)
 	}
-	sortInts(counts)
+	sort.Ints(counts)
 	if counts[0] != 2 || counts[1] != 3 {
 		t.Errorf("payload counts = %v, want [2 3] (5 requests over 2 golden inputs, cycled by index)", counts)
-	}
-}
-
-func sortInts(s []int) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j-1], s[j] = s[j], s[j-1]
-		}
 	}
 }
 
@@ -242,7 +232,6 @@ func TestRunGoldenModeNonOKFailsExitRule(t *testing.T) {
 		Concurrency: 1,
 		GoldenDir:   dir,
 		DeviceCount: 10,
-		DialTimeout: 2 * time.Second,
 	}
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
@@ -319,7 +308,6 @@ func TestRunTransportErrorFailsExitRuleRegardlessOfMode(t *testing.T) {
 		Concurrency:        5,
 		RandomPayloadBytes: 8,
 		DeviceCount:        10,
-		DialTimeout:        2 * time.Second,
 	}
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
@@ -351,7 +339,12 @@ func (s predictServer) Health(context.Context, *servingv1.HealthRequest) (*servi
 // TestRunRespectsContextCancellation proves ruling 6: a context cancelled
 // mid-run stops issuing new requests promptly instead of running to cfg.N.
 // The server sleeps briefly per request so N=1000 would otherwise take far
-// longer than the cancellation deadline.
+// longer than the cancellation deadline. It also proves the Important-1 fix:
+// an incomplete run (Sent < cfg.N) must not report success by returning a
+// nil error -- Run returns ctx.Err() instead, exactly the "non-zero exit
+// signal" main.go relies on for an incomplete run that isn't already caught
+// by Failed's outcome counters (there are no outcomes to count for a request
+// never sent).
 func TestRunRespectsContextCancellation(t *testing.T) {
 	inner := newStubServer(t)
 	slow := predictServer{predict: func(ctx context.Context, req *servingv1.PredictRequest) (*servingv1.PredictResponse, error) {
@@ -367,7 +360,6 @@ func TestRunRespectsContextCancellation(t *testing.T) {
 		Concurrency:        4,
 		RandomPayloadBytes: 8,
 		DeviceCount:        10,
-		DialTimeout:        2 * time.Second,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -376,14 +368,104 @@ func TestRunRespectsContextCancellation(t *testing.T) {
 	res, err := Run(ctx, cfg)
 	elapsed := time.Since(start)
 
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
 	if res.Sent >= 1000 {
 		t.Errorf("Sent = %d, want < 1000 (ctx should have stopped the run early)", res.Sent)
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("Run took %v after a 150ms ctx timeout, want it to return promptly", elapsed)
+	}
+	if err == nil {
+		t.Error("Run: want a non-nil error for an incomplete run (Sent < N), got nil -- this is the silent-success shape")
+	}
+}
+
+// TestRunAlreadyCancelledContextIsNotSilentSuccess is the sharpest case of
+// Important-1: ctx is cancelled *before* Run is even called, so nothing is
+// ever sent. Without the Sent<cfg.N check, Result is all-zero, Failed(false)
+// and Failed(true) both report false, and main.go would exit 0 having sent
+// nothing -- Task 9's whole point is that exit code is trustworthy. Run must
+// surface this as an error instead.
+func TestRunAlreadyCancelledContextIsNotSilentSuccess(t *testing.T) {
+	rec := &recordingServer{inner: newStubServer(t)}
+	addr := startTestServer(t, rec)
+
+	cfg := Config{
+		Target:             addr,
+		Model:              "defect-cls",
+		N:                  5,
+		Concurrency:        2,
+		RandomPayloadBytes: 8,
+		DeviceCount:        10,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancelled before Run ever sees it
+
+	res, err := Run(ctx, cfg)
+	if err == nil {
+		t.Fatal("Run with an already-cancelled ctx: want a non-nil error, got nil")
+	}
+	// select among ready cases is not ordered, so a worker that happens to
+	// already be receiving when the feeder's select runs can still win a job
+	// or two against the also-ready ctx.Done() case -- the guarantee is that
+	// the feeder stops well short of cfg.N, not that it sends exactly zero.
+	if res.Sent >= cfg.N {
+		t.Errorf("Sent = %d, want < %d (the feeder should stop almost immediately on an already-cancelled ctx)", res.Sent, cfg.N)
+	}
+	if res.Failed(false) || res.Failed(true) {
+		t.Fatal("Failed() alone reports false for a near-all-zero Result -- the error return, not Failed, is what must catch this case")
+	}
+}
+
+// badStatusServer always returns a Status value outside the three
+// servingv1.Status defines today, simulating what a future wire-contract
+// extension (or a misbehaving target) looks like from the client's side.
+type badStatusServer struct {
+	servingv1.UnimplementedModelServiceServer
+}
+
+func (badStatusServer) Predict(_ context.Context, req *servingv1.PredictRequest) (*servingv1.PredictResponse, error) {
+	return &servingv1.PredictResponse{
+		RequestId: req.RequestId,
+		ModelName: req.ModelName,
+		Status:    servingv1.Status(99),
+	}, nil
+}
+
+func (badStatusServer) Health(context.Context, *servingv1.HealthRequest) (*servingv1.HealthResponse, error) {
+	return &servingv1.HealthResponse{Ready: true}, nil
+}
+
+// TestRunUnknownStatusCountsAsInternalError is Important-2: a Status this
+// build doesn't recognize must not vanish from every counter. It must land
+// somewhere -- InternalError, since an unrecognized status is the target's
+// fault -- so Sent stays equal to the sum of the four outcome counters and
+// golden mode's Failed check still catches it.
+func TestRunUnknownStatusCountsAsInternalError(t *testing.T) {
+	addr := startTestServer(t, badStatusServer{})
+
+	cfg := Config{
+		Target:             addr,
+		Model:              "defect-cls",
+		N:                  3,
+		Concurrency:        1,
+		RandomPayloadBytes: 8,
+		DeviceCount:        10,
+	}
+	res, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.InternalError != 3 {
+		t.Errorf("InternalError = %d, want 3 (an out-of-range Status must count as InternalError, not vanish)", res.InternalError)
+	}
+	if res.OK != 0 || res.InvalidInput != 0 {
+		t.Errorf("OK=%d InvalidInput=%d, want both 0", res.OK, res.InvalidInput)
+	}
+	if sum := res.OK + res.InvalidInput + res.InternalError + res.TransportErr; sum != res.Sent {
+		t.Errorf("counters sum to %d, want Sent %d (every sent request must land in exactly one counter)", sum, res.Sent)
+	}
+	if !res.Failed(true) {
+		t.Error("Failed(true) = false, want true: golden mode must fail on a status it cannot classify as OK")
 	}
 }
 
