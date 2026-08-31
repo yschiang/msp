@@ -31,10 +31,15 @@ descriptors:
 # protoc-gen-go or grpcio-tools would otherwise rewrite the frozen contract --
 # including the Python import-time version floors -- inside a green build.
 # `git status --porcelain`, not `git diff`: it also catches files a newer
-# generator adds.
+# generator adds. Fails closed: no git, or no checkout, means the guard cannot
+# vouch for anything, which is not the same as "no drift".
 .PHONY: proto-check
 proto-check: proto descriptors
-	@drift="$$(git status --porcelain -- $(GEN_PATHS))"; \
+	@drift="$$(git status --porcelain -- $(GEN_PATHS))" || { \
+	  echo "proto-check: git status failed (no git, or not a git checkout), so"; \
+	  echo "generated-code drift cannot be verified -- failing closed."; \
+	  exit 1; \
+	}; \
 	if [ -n "$$drift" ]; then \
 	  echo "generated-code drift: regenerating changed committed artifacts:"; \
 	  echo "$$drift"; \

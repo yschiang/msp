@@ -11,7 +11,8 @@
 #      merely "fails", but fails THAT check, by ID, in the JSON report
 #   4. predict round-trip through router-stub (MYSVC's stand-in)
 #   5. predict round-trip through the real example model container
-#   6. cleanup: a trap, so it fires on success, on `set -e` abort, and on Ctrl-C
+#   6. cleanup: a trap, so it fires on success, on `set -e` abort, and on
+#      SIGINT/SIGTERM, which are routed through the exit trap
 #
 # Requires docker, go, python3, protoc (+ grpcio-tools), and maven.
 

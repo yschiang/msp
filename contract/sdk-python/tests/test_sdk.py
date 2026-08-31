@@ -93,7 +93,16 @@ def _write_manifest(tmp_dir) -> str:
                         "messageType": "msp.example.v1.DefectOutput",
                     },
                 },
-                "runtime": {"startupSeconds": 120},
+                # resources is required by contract/manifest.schema.json; the
+                # SDK does not validate (see _manifest.py), but the fixture
+                # should still be a manifest an image could actually ship.
+                "runtime": {
+                    "resources": {
+                        "requests": {"cpu": "1", "memory": "1Gi"},
+                        "limits": {"cpu": "2", "memory": "2Gi"},
+                    },
+                    "startupSeconds": 120,
+                },
                 "comparisonPolicy": "exact",
                 "goldenSamples": [
                     {
