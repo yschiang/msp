@@ -33,6 +33,14 @@ image-example:
 	docker build -t msp-example-defect-cls:dev \
 	  -f contract/examples/defect-cls/Dockerfile contract/examples/defect-cls
 
+# Static cross-compile (linux, host arch) so the binary runs in FROM scratch.
+# The binary lands in msp/ (git-ignored) because the docker build context is msp/.
+.PHONY: image-probe
+image-probe:
+	cd msp && CGO_ENABLED=0 GOOS=linux go build -o msp-conform ./cmd/msp-conform
+	docker build -t msp-conform-probe:dev -f msp/Dockerfile.probe msp
+	rm msp/msp-conform
+
 # Copy the canonical manifest schema over its //go:embed-ed copy. Doubles as the
 # drift check: it exits non-zero when the copy was stale, so CI can just run it.
 # (`go test ./...` catches the same drift via TestSchemaCopyMatchesCanonical.)
