@@ -65,4 +65,5 @@ mvn -q -f contract/java/pom.xml verify                           # Java bindings
 `make phase0-accept` needs docker, go, python3, protoc (with `grpcio-tools`),
 and maven. It takes roughly 80s warm, a few minutes cold (the base image's
 `pip install`). It cleans up its containers and background processes on every
-exit path, including Ctrl-C.
+exit path: success, `set -e` abort, and SIGINT/SIGTERM, which are routed through
+the exit trap.
