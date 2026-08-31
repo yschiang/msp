@@ -7,3 +7,6 @@ __pycache__/
 .superpowers/
 .msp-conform-tmp/
 msp/msp-conform
+
+# Per-developer Claude Code settings. .claude/settings.json (shared) is not ignored.
+.claude/settings.local.json
