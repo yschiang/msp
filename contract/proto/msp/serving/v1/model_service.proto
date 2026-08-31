@@ -1,0 +1,44 @@
+syntax = "proto3";
+package msp.serving.v1;
+
+option go_package = "github.com/yschiang/msp/msp/gen/servingv1;servingv1";
+option java_multiple_files = true;
+option java_package = "io.msp.gen.serving.v1";
+
+import "google/protobuf/timestamp.proto";
+
+service ModelService {
+  rpc Predict(PredictRequest) returns (PredictResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message PredictRequest {
+  string request_id  = 1;   // platform-generated, used for end-to-end tracing
+  string device_id   = 2;
+  string model_name  = 3;
+  google.protobuf.Timestamp ingest_time = 4;
+  bytes  payload     = 5;   // model-specific; schema declared by the model manifest
+  map<string, string> metadata = 6;
+}
+
+message PredictResponse {
+  string request_id     = 1;
+  string model_name     = 2;
+  string model_version  = 3;
+  string model_digest   = 4;   // image digest, read from the manifest at model startup
+  bytes  payload        = 5;   // model-specific output
+  Status status         = 6;
+  int64  inference_ms   = 7;
+}
+
+enum Status {
+  OK = 0;
+  INVALID_INPUT = 1;
+  INTERNAL_ERROR = 2;
+}
+
+message HealthRequest {}
+message HealthResponse {
+  bool ready = 1;
+  string detail = 2;
+}

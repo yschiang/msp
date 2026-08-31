@@ -1,0 +1,11 @@
+# C5 negative fixture: a model whose answers no longer match its goldens.
+#
+# The classification threshold moves from 0.5 to 0.9. Golden sample-01 has
+# features [0.75, 0.75, 0.75] -> score 0.75, which was "defect" at 0.5 and is
+# "ok" at 0.9, so its output stops matching expected-01.bin. sample-02 (score
+# 0.25) is "ok" either way, so exactly one of the two goldens flips. The model
+# is still perfectly deterministic, so C6 is untouched.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c5-wrong-golden"
+RUN grep -q '^threshold: 0.5$' /opt/msp/config/params.yaml \
+ && sed -i 's|^threshold: 0.5$|threshold: 0.9|' /opt/msp/config/params.yaml

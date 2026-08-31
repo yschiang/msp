@@ -1,0 +1,9 @@
+# C1 negative fixture: a manifest that parses as YAML but violates the schema.
+#
+# `comparisonPolicy` is constrained by contract/manifest.schema.json to
+# ^(exact|numeric:[0-9.eE+-]+|top-k:[0-9]+)$ -- "fuzzy" matches none of those, so
+# manifest.Load's schema validation rejects it and C1 fails naming the field.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c1-bad-schema"
+RUN grep -q '^comparisonPolicy: exact$' /opt/msp/model-manifest.yaml \
+ && sed -i 's|^comparisonPolicy: exact$|comparisonPolicy: fuzzy|' /opt/msp/model-manifest.yaml

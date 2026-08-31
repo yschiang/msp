@@ -1,0 +1,9 @@
+# msp-conform-probe: the conformance probe image (MSP-SPEC-001 §4.4).
+# `msp-conform verify` runs it with --network container:<model> so the probe
+# shares the model container's network namespace and reaches 127.0.0.1:<port>
+# even with --network none on the model. FROM scratch works because the probe
+# is a static Go binary speaking plaintext gRPC to a literal IP: no shell, no
+# CA certs, no DNS, no /tmp needed. Built by `make image-probe`.
+FROM scratch
+COPY msp-conform /msp-conform
+ENTRYPOINT ["/msp-conform"]

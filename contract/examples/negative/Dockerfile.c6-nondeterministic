@@ -1,0 +1,14 @@
+# C6 negative fixture: a model that answers differently every time.
+#
+# model-nondeterministic.py returns a well-formed DefectOutput whose score is
+# random.random(). The payload always parses (C3 and C4 stay clean) but the
+# three calls C6 makes on one connection never agree under comparisonPolicy
+# exact, so C6 fails on every run rather than flakily.
+#
+# It also fails C5 -- a random score cannot match expected-01.bin. That is
+# expected and unavoidable: any output that varies between calls also differs
+# from a fixed golden. The acceptance test asserts C6 is among the failures and
+# deliberately does not assert C5's absence.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c6-nondeterministic"
+COPY model-nondeterministic.py /opt/msp/model.py

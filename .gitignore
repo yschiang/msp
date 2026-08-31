@@ -1,0 +1,12 @@
+bin/
+contract/java/target/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.superpowers/
+.msp-conform-tmp/
+msp/msp-conform
+
+# Per-developer Claude Code settings. .claude/settings.json (shared) is not ignored.
+.claude/settings.local.json

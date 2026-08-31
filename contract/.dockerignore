@@ -1,0 +1,7 @@
+# Keep the image build hermetic: a dev tree and a clean checkout must produce
+# the same context. The Dockerfile itself is fixed by the contract.
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+sdk-python/tests/
+java/target/

@@ -1,0 +1,9 @@
+# C3 negative fixture: a server that violates the envelope contract.
+#
+# badmodel.py replaces the SDK-hosted model with a raw grpcio server, so it
+# inherits none of the SDK's payload validation. See badmodel.py for why that
+# matters: the SDK rejects wire-corrupt payloads on the model's behalf, so a
+# fixture built on the SDK cannot answer OK to garbage.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c3-bad-status"
+COPY badmodel.py /opt/msp/model.py

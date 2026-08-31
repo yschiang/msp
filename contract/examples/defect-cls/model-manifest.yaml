@@ -1,0 +1,28 @@
+apiVersion: msp/v1
+kind: ModelManifest
+model:
+  name: defect-cls
+  version: v1
+  description: "Defect classification stand-in for Phase 0 conformance (CPU average-vs-threshold)"
+contract:
+  protocol: grpc
+  port: 8080
+  inputSchema:
+    type: protobuf
+    descriptor: /opt/msp/schemas/input.desc
+    messageType: msp.example.v1.DefectInput
+  outputSchema:
+    type: protobuf
+    descriptor: /opt/msp/schemas/output.desc
+    messageType: msp.example.v1.DefectOutput
+runtime:
+  resources:
+    requests: {cpu: "1", memory: 1Gi}
+    limits: {cpu: "2", memory: 2Gi}
+  startupSeconds: 30
+comparisonPolicy: exact
+goldenSamples:
+  - input: /opt/msp/golden/sample-01.bin
+    output: /opt/msp/golden/expected-01.bin
+  - input: /opt/msp/golden/sample-02.bin
+    output: /opt/msp/golden/expected-02.bin

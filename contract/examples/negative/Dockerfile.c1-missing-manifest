@@ -1,0 +1,8 @@
+# C1 negative fixture: a model image with no manifest at all.
+#
+# FROM msp-base:dev rather than the example image, so /opt/msp/model-manifest.yaml
+# genuinely does not exist. `msp-conform verify` fails the `docker cp` of the
+# manifest and reports C1 FAIL; C2-C7 never run, because every one of them needs
+# the manifest to know what to check.
+FROM msp-base:dev
+LABEL msp.negative-fixture="c1-missing-manifest"

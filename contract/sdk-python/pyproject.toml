@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msp-sdk"
+version = "0.1.0"
+description = "MSP scientist SDK: BaseModel + serve() (MSP-SPEC-001 4.5)"
+# 3.12 in the base image; 3.10 so the SDK is also testable on the dev host.
+requires-python = ">=3.10"
+dependencies = [
+    # Hard import-time floors embedded in the committed gencode: below these,
+    # importing the generated modules raises (see docs/SCAFFOLDING.md).
+    "protobuf>=7.35.1",
+    "grpcio>=1.83.1",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+# msp.serving.v1 / msp.example.v1 are generated dirs with no __init__.py.
+include = ["msp*"]
+namespaces = true

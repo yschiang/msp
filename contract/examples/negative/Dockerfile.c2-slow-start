@@ -1,0 +1,13 @@
+# C2 negative fixture: a model that does not become ready inside its budget.
+#
+# model-slow-start.py sleeps 600s in load(); the manifest's startupSeconds drops
+# from 30 to 10. The SDK starts the gRPC server before calling load(), so Health
+# answers ready=false detail="model loading" the whole time -- the container is
+# up and reachable, it simply never becomes ready, which is precisely what C2
+# measures. The probe gives up after 10s, so this fixture costs the gate ~10s,
+# not 600s.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c2-slow-start"
+COPY model-slow-start.py /opt/msp/model.py
+RUN grep -q '^  startupSeconds: 30$' /opt/msp/model-manifest.yaml \
+ && sed -i 's|^  startupSeconds: 30$|  startupSeconds: 10|' /opt/msp/model-manifest.yaml

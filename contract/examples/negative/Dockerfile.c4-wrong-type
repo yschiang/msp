@@ -1,0 +1,13 @@
+# C4 negative fixture: a manifest naming an output message that does not exist.
+#
+# The output schema's messageType is changed to msp.example.v1.DoesNotExist, a
+# name absent from /opt/msp/schemas/output.desc, so C4's static half fails
+# resolving it before the model is even started.
+#
+# Deliberately the OUTPUT schema, not the input: the SDK resolves inputSchema's
+# message class at startup, so breaking the input side would crash the container
+# and fail C2 instead -- a fixture that breaks two things proves neither.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c4-wrong-type"
+RUN grep -q '    messageType: msp.example.v1.DefectOutput' /opt/msp/model-manifest.yaml \
+ && sed -i 's|    messageType: msp.example.v1.DefectOutput|    messageType: msp.example.v1.DoesNotExist|' /opt/msp/model-manifest.yaml

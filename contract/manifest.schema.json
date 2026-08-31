@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yschiang/msp/contract/manifest.schema.json",
+  "title": "MSP model-manifest.yaml",
+  "description": "Contract every model image declares at /opt/msp/model-manifest.yaml (MSP-SPEC-001 §4.2). Checked by conformance item C1.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "apiVersion",
+    "kind",
+    "model",
+    "contract",
+    "runtime",
+    "comparisonPolicy",
+    "goldenSamples"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "msp/v1"
+    },
+    "kind": {
+      "const": "ModelManifest"
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["protocol", "port", "inputSchema", "outputSchema"],
+      "properties": {
+        "protocol": { "const": "grpc" },
+        "port": { "const": 8080 },
+        "inputSchema": { "$ref": "#/$defs/schemaRef" },
+        "outputSchema": { "$ref": "#/$defs/schemaRef" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["resources", "startupSeconds"],
+      "properties": {
+        "resources": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": { "$ref": "#/$defs/resourceMap" },
+            "limits": { "$ref": "#/$defs/resourceMap" }
+          }
+        },
+        "startupSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "comparisonPolicy": {
+      "type": "string",
+      "pattern": "^(exact|numeric:[0-9.eE+-]+|top-k:[0-9]+)$"
+    },
+    "goldenSamples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["input", "output"],
+        "properties": {
+          "input": { "type": "string", "minLength": 1 },
+          "output": { "type": "string", "minLength": 1 },
+          "tolerance": {
+            "type": "string",
+            "pattern": "^(exact|numeric:[0-9.eE+-]+)$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "resourceMap": {
+      "description": "Resource quantities, k8s style. minProperties keeps C7 (resource ceilings) from being bypassable by declaring an empty map.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": ["string", "number"] }
+    },
+    "schemaRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type", "descriptor"],
+      "properties": {
+        "type": { "enum": ["protobuf", "jsonschema"] },
+        "descriptor": { "type": "string", "minLength": 1 },
+        "messageType": { "type": "string", "minLength": 1 }
+      },
+      "if": {
+        "properties": { "type": { "const": "protobuf" } },
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["messageType"]
+      }
+    }
+  }
+}
