@@ -3,8 +3,9 @@
 # MSP Phase 0 acceptance gate (MSP-SPEC-001 §11). Run it with `make phase0-accept`.
 #
 # Six steps:
-#   1. build everything: proto, descriptors, the three images, the Go binaries,
-#      and the Java bindings
+#   1. build everything: proto, descriptors (both drift-checked against the
+#      committed generated code), the three images, the Go binaries, and the
+#      Java bindings
 #   2. the example model image passes all seven conformance checks
 #   3. each of the eight negative fixtures fails the check it targets -- not
 #      merely "fails", but fails THAT check, by ID, in the JSON report
@@ -88,7 +89,10 @@ wait_serving() {
 remove_labelled_containers # leftovers from an interrupted previous run
 
 step "step 1/6: build proto, descriptors, images, Go binaries, Java bindings"
-make proto descriptors image-base image-example image-probe build
+# proto-check = proto + descriptors + "regeneration changed nothing that is
+# committed". Without it this step would quietly rewrite the frozen contract's
+# generated code on a host with a different protoc/grpcio-tools, and still pass.
+make proto-check image-base image-example image-probe build
 mvn -q -f contract/java/pom.xml verify
 
 # ------------------------------------------------------------------ step 2 --

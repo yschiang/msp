@@ -1,6 +1,10 @@
 PROTO_DIR := contract/proto
 SCHEMA_SRC := contract/manifest.schema.json
 SCHEMA_DST := msp/internal/manifest/manifest.schema.json
+# Everything `proto` and `descriptors` write and git tracks. proto-check asserts
+# regeneration changed none of it.
+GEN_PATHS := msp/gen contract/sdk-python/msp/serving contract/sdk-python/msp/example \
+  contract/examples/defect-cls/schemas
 
 .PHONY: proto
 proto:
@@ -22,14 +26,36 @@ descriptors:
 	  $(PROTO_DIR)/msp/example/v1/defect.proto
 	cp contract/examples/defect-cls/schemas/input.desc contract/examples/defect-cls/schemas/output.desc
 
+# Drift guard for the committed generated code, the protos' equivalent of
+# sync-schema: regenerate, then assert nothing moved. A host with a different
+# protoc-gen-go or grpcio-tools would otherwise rewrite the frozen contract --
+# including the Python import-time version floors -- inside a green build.
+# `git status --porcelain`, not `git diff`: it also catches files a newer
+# generator adds.
+.PHONY: proto-check
+proto-check: proto descriptors
+	@drift="$$(git status --porcelain -- $(GEN_PATHS))"; \
+	if [ -n "$$drift" ]; then \
+	  echo "generated-code drift: regenerating changed committed artifacts:"; \
+	  echo "$$drift"; \
+	  echo "Your protoc / protoc-gen-go / grpcio-tools emits something other than what is committed."; \
+	  echo "Either commit the regenerated files (git add -- $(GEN_PATHS)) if the new toolchain is the"; \
+	  echo "intended one, or install the toolchain versions in docs/SCAFFOLDING.md and re-run."; \
+	  exit 1; \
+	fi
+
 .PHONY: image-base
 image-base:
 	docker build -t msp-base:dev -f contract/base-image/Dockerfile contract/
 
 # Build context is contract/examples/defect-cls/ itself -- the Dockerfile's COPY
 # sources (model.py, config/, schemas/, golden/) are bare paths relative to it.
+# image-base is a prerequisite because this is the one ordering `make -j images`
+# would otherwise get wrong (this Dockerfile is FROM msp-base:dev). The other
+# inputs -- generated Python in the SDK, schemas/*.desc -- are committed, so no
+# codegen target is a prerequisite of any image target.
 .PHONY: image-example
-image-example:
+image-example: image-base
 	docker build -t msp-example-defect-cls:dev \
 	  -f contract/examples/defect-cls/Dockerfile contract/examples/defect-cls
 
@@ -50,6 +76,18 @@ image-probe:
 build:
 	mkdir -p bin
 	cd msp && go build -o ../bin/ ./cmd/...
+
+.PHONY: images
+images: image-base image-example image-probe
+
+# Everything that runs without docker: the Go tests, the Python SDK tests, and
+# the schema drift check. The example-image smoke test lives under
+# contract/examples and skips itself when docker is missing.
+.PHONY: test
+test: sync-schema
+	cd msp && go test ./...
+	PYTHONPATH=contract/sdk-python python3 -m pytest \
+	  contract/sdk-python/tests contract/examples/defect-cls/tests
 
 # The Phase 0 acceptance gate (MSP-SPEC-001 §11). Builds everything itself.
 .PHONY: phase0-accept
