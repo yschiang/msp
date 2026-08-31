@@ -54,11 +54,21 @@ class Servicer(pb_grpc.ModelServiceServicer):
             # DefectInput), unknown fields, a known field number sent with the
             # wrong wire type (dropped silently, the field keeps its default),
             # and NaN/inf floats. Only wire corruption, truncation and invalid
-            # UTF-8 are caught here. Strict validation (spec 4.3-5) needs a walk
-            # over google.protobuf.unknown_fields.UnknownFieldSet (the message's
-            # own UnknownFields() raises NotImplementedError on the upb runtime)
-            # plus per-field rules the manifest has no place to declare yet;
-            # add it when drift alerting demands it.
+            # UTF-8 are caught here.
+            #
+            # Upgrade path (SPEC-GAP #2, spec 4.3-5): the middle three are
+            # reachable in three lines that match Go strictParse
+            # (msp/internal/conformance/probe.go) semantics exactly --
+            #     m.ParseFromString(payload)
+            #     m.DiscardUnknownFields()   # recursive; works on the upb runtime
+            #     m.SerializeToString(deterministic=True) == payload
+            # -- left undone because tightening C3 is a contract behavior change,
+            # not because it is infeasible. (An earlier note here blamed upb:
+            # UnknownFields() does raise NotImplementedError, but
+            # DiscardUnknownFields() does not, so the walk is unnecessary.)
+            # The empty payload and NaN/inf stay out of reach either way: both
+            # are legal proto3 and Go strictParse accepts them too; rejecting
+            # them needs per-field rules the manifest cannot declare yet.
             response.status = pb.INVALID_INPUT
             return response
 
