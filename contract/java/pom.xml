@@ -11,7 +11,12 @@
 
   <!--
     Java bindings module for MYSVC. Generated from contract/proto at build time;
-    no hand-written sources live here (see docs/SCAFFOLDING.md).
+    no hand-written sources live in src/main (see docs/SCAFFOLDING.md).
+
+    src/test holds exactly one hand-written class, RouterStubRoundTrip: the
+    §11 Phase 0 acceptance item "MYSVC 端以 Router stub 完成一次 predict 往返".
+    MYSVC is grpc-java (MYSVC-SPEC-001 D3), so nothing else in this repo proves
+    these generated stubs can dial. Test scope keeps it out of the jar.
   -->
 
   <properties>
@@ -43,6 +48,17 @@
       <artifactId>javax.annotation-api</artifactId>
       <version>1.3.2</version>
     </dependency>
+    <!--
+      Test scope: the bindings themselves are transport-agnostic, but the
+      round-trip needs a real channel. MYSVC picks its own transport; this is
+      not a dependency the published jar imposes.
+    -->
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-netty-shaded</artifactId>
+      <version>${grpc.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -72,6 +88,20 @@
             </goals>
           </execution>
         </executions>
+      </plugin>
+      <!--
+        Runs RouterStubRoundTrip on demand from tests/acceptance/phase0_test.sh,
+        once router-stub is listening. Not bound to a lifecycle phase: `mvn
+        verify` must stay runnable with nothing serving.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.1</version>
+        <configuration>
+          <mainClass>io.msp.contract.RouterStubRoundTrip</mainClass>
+          <classpathScope>test</classpathScope>
+        </configuration>
       </plugin>
     </plugins>
   </build>

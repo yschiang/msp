@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/yschiang/msp/msp/internal/conformance"
 	"github.com/yschiang/msp/msp/internal/manifest"
@@ -115,6 +116,7 @@ func runProbe(ctx context.Context, args []string) int {
 	goldenDir := fs.String("golden-dir", "", "directory of extracted golden files")
 	target := fs.String("target", "", "ModelService target, host:port")
 	startupSeconds := fs.Int("startup-seconds", 0, "startup budget; 0 means the manifest's runtime.startupSeconds")
+	modelStarted := fs.String("model-started", "", "RFC3339Nano instant the model container started, which is when the startup budget begins; empty means now")
 	jsonOut := fs.Bool("json", false, "print the report as JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -136,6 +138,14 @@ func runProbe(ctx context.Context, args []string) int {
 	if *startupSeconds == 0 {
 		*startupSeconds = m.Runtime.StartupSeconds
 	}
+	var started time.Time
+	if *modelStarted != "" {
+		started, err = time.Parse(time.RFC3339Nano, *modelStarted)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "msp-conform probe: --model-started: %v\n", err)
+			return 2
+		}
+	}
 
 	report := conformance.Probe(ctx, conformance.ProbeConfig{
 		Target:         *target,
@@ -143,6 +153,7 @@ func runProbe(ctx context.Context, args []string) int {
 		GoldenDir:      *goldenDir,
 		DescDir:        filepath.Dir(*manifestPath),
 		StartupSeconds: *startupSeconds,
+		ModelStarted:   started,
 	})
 	printReport(report, *jsonOut)
 	if report.Pass {

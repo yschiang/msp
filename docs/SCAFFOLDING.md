@@ -49,7 +49,11 @@ Makefile                       # top-level entry points; delegates to go/mvn/pip
   `bin/` via `make build`, named exactly as the spec's CLIs (`msp-conform`,
   `router-stub`, `msp-traffic`).
 - **Java bindings**: Maven only (no Gradle). `mvn -q -f contract/java/pom.xml verify`
-  compiles generated stubs with JDK 17. No hand-written Java in this module.
+  compiles generated stubs with JDK 17. No hand-written Java in `src/main` — the
+  jar is pure codegen. `src/test` holds exactly one class,
+  `io.msp.contract.RouterStubRoundTrip`, run by the acceptance gate via
+  `exec:java` once router-stub is listening: it is the §11 item "MYSVC 端以
+  Router stub 完成一次 predict 往返", and nothing else proves these stubs dial.
 - **Python**: `pip install -e contract/sdk-python[dev]`; tests with `pytest`.
 - **Images**: built via Makefile targets, tagged `<name>:dev` locally
   (`msp-base:dev`, `msp-example-defect-cls:dev`, `msp-conform-probe:dev`).

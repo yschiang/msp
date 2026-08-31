@@ -9,7 +9,9 @@
 #   2. the example model image passes all seven conformance checks
 #   3. each of the eight negative fixtures fails the check it targets -- not
 #      merely "fails", but fails THAT check, by ID, in the JSON report
-#   4. predict round-trip through router-stub (MYSVC's stand-in)
+#   4. predict round-trip through router-stub -- the Router's stand-in, which
+#      MYSVC integrates against -- from both the Go traffic generator and a
+#      grpc-java client, the transport MYSVC itself uses
 #   5. predict round-trip through the real example model container
 #   6. cleanup: a trap, so it fires on success, on `set -e` abort, and on
 #      SIGINT/SIGTERM, which are routed through the exit trap
@@ -176,6 +178,13 @@ wait_serving "localhost:$STUB_PORT" 30 ||
 bin/msp-traffic -target "localhost:$STUB_PORT" -model "$MODEL_NAME" \
 	-n 50 -concurrency 4 -golden-dir "$GOLDEN_DIR" ||
 	fail "traffic against router-stub exited non-zero"
+
+# §11's acceptance item is "MYSVC 端以 Router stub 完成一次 predict 往返", and
+# MYSVC is grpc-java (MYSVC-SPEC-001 D3). msp-traffic above exercises the Go
+# stubs; only this exercises the generated grpc-java bindings MYSVC will import.
+mvn -q -f contract/java/pom.xml exec:java \
+	-Dexec.args="localhost:$STUB_PORT $MODEL_NAME $ROOT/$GOLDEN_DIR/sample-01.bin" ||
+	fail "grpc-java round-trip against router-stub exited non-zero"
 
 # ------------------------------------------------------------------ step 5 --
 

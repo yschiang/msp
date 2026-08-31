@@ -388,3 +388,37 @@ func TestGarbagePayloadGenuinelyDoesNotParse(t *testing.T) {
 		t.Fatal("garbage payload must be non-empty")
 	}
 }
+
+// TestProbeBudgetRunsFromModelStart pins that C2's clock starts when the model
+// container started, not when the probe did. Without ModelStarted the probe
+// hands every model the cost of its own `docker run` (300-550ms locally) as
+// free startup budget: this server is ready instantly, so it passes on the
+// probe's clock and must still fail on the model's.
+func TestProbeBudgetRunsFromModelStart(t *testing.T) {
+	target := startServer(t, newValidatingServer(t))
+
+	spent := Probe(context.Background(), ProbeConfig{
+		Target: target, Manifest: exampleManifest(),
+		GoldenDir: exampleGoldenDir, DescDir: exampleDescDir,
+		StartupSeconds: 10,
+		ModelStarted:   time.Now().Add(-11 * time.Second), // budget already gone
+	})
+	c2 := checkByID(t, spent, "C2")
+	if c2.Pass {
+		t.Errorf("C2 passed on a budget spent before the probe connected: %s", c2.Detail)
+	}
+	if !strings.Contains(c2.Detail, "already spent") {
+		t.Errorf("C2 detail does not name the spent budget: %s", c2.Detail)
+	}
+
+	// The same server, same budget, with the clock started now: still a pass.
+	fresh := Probe(context.Background(), ProbeConfig{
+		Target: target, Manifest: exampleManifest(),
+		GoldenDir: exampleGoldenDir, DescDir: exampleDescDir,
+		StartupSeconds: 10,
+		ModelStarted:   time.Now(),
+	})
+	if c := checkByID(t, fresh, "C2"); !c.Pass {
+		t.Errorf("C2 failed with a fresh clock: %s", c.Detail)
+	}
+}

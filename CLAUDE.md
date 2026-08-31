@@ -21,7 +21,7 @@ Where things live and who owns what. Full layout rules: `docs/SCAFFOLDING.md`.
 | `contract/base-image/`            | `msp-base:dev` — the image every model image is built FROM.                               |
 | `contract/examples/defect-cls/`   | The reference model image that must pass all seven checks.                                |
 | `contract/examples/negative/`     | Eight deliberately-broken images that must FAIL, one per check except C1, which gets two (missing manifest, schema-invalid manifest). They are what makes the gate a gate. |
-| `contract/java/`                  | Generated grpc-java stubs for MYSVC. Codegen only, no hand-written Java.                  |
+| `contract/java/`                  | Generated grpc-java stubs for MYSVC. `src/main` is codegen only; `src/test` holds one hand-written round-trip client the acceptance gate runs against `router-stub`. |
 | `msp/cmd/`                        | The three binaries: `msp-conform`, `router-stub`, `msp-traffic`.                          |
 | `msp/internal/conformance/`       | Checks C1–C7 and the docker orchestration behind `msp-conform verify`.                    |
 | `msp/internal/{envelope,manifest,stub,traffic}/` | Envelope client + golden comparison, manifest loading, the canned ModelService, the load driver. |

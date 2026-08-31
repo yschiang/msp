@@ -154,12 +154,18 @@ func VerifyImage(ctx context.Context, image string, opts VerifyOptions) (*Report
 	cl.containers = append(cl.containers, modelName, probeName)
 
 	liveChecks := map[string]CheckResult{}
-	if _, err := dockerRun(ctx, "run", "-d", "--network", "none", "--name", modelName, image); err != nil {
+	_, modelErr := dockerRun(ctx, "run", "-d", "--network", "none", "--name", modelName, image)
+	// C2's startupSeconds budget runs from here. The probe cannot see this
+	// instant from inside its own container, and `docker run` of that
+	// container costs 300-550ms locally, so the host stamps it and passes it
+	// down -- otherwise every model gets that much budget for free.
+	modelStarted := time.Now()
+	if modelErr != nil {
 		liveChecks["C2"] = CheckResult{ID: "C2", Name: CheckNames["C2"],
-			Detail: fmt.Sprintf("model container failed to start with --network none: %v", err)}
+			Detail: fmt.Sprintf("model container failed to start with --network none: %v", modelErr)}
 	} else {
-		pctx, cancel := context.WithTimeout(ctx,
-			time.Duration(m.Runtime.StartupSeconds)*time.Second+probeExtraBudget)
+		budget := time.Duration(m.Runtime.StartupSeconds) * time.Second
+		pctx, cancel := context.WithTimeout(ctx, time.Until(modelStarted.Add(budget))+probeExtraBudget)
 		probeOut, probeErr := dockerRun(pctx, "run", "--rm", "--name", probeName,
 			"--network", "container:"+modelName,
 			"-v", dir+":/conform:ro",
@@ -168,6 +174,7 @@ func VerifyImage(ctx context.Context, image string, opts VerifyOptions) (*Report
 			"--golden-dir", "/conform/golden",
 			"--target", fmt.Sprintf("127.0.0.1:%d", m.Contract.Port),
 			"--startup-seconds", fmt.Sprint(m.Runtime.StartupSeconds),
+			"--model-started", modelStarted.Format(time.RFC3339Nano),
 			"--json")
 		cancel()
 

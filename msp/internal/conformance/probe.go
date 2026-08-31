@@ -47,20 +47,25 @@ const (
 // ProbeConfig carries everything the live checks need. DescDir and GoldenDir
 // hold the files extracted from the image, flat under their container
 // basenames (the envelope.LoadGoldens/Compare convention).
+// ModelStarted is when the model container was started, which is when C2's
+// startupSeconds budget begins. The probe runs in its own container, so it
+// cannot observe that instant; the host passes it in. Zero means "now",
+// for direct callers (tests) that start the server themselves.
 type ProbeConfig struct {
 	Target         string
 	Manifest       *manifest.Manifest
 	GoldenDir      string
 	DescDir        string
 	StartupSeconds int
+	ModelStarted   time.Time
 }
 
 // Probe runs C2–C6 against a live model and returns their verdicts. Checks
 // blocked by an earlier failure (no ready model, no golden samples) are
-// absent from the report rather than guessed at. The C2 clock starts here —
-// at probe start, moments after the model container started — so a model
-// that sleeps past its startupSeconds budget fails promptly instead of
-// hanging the gate.
+// absent from the report rather than guessed at. The C2 clock starts at
+// cfg.ModelStarted, not at probe start: `docker run` of the probe container
+// measures 300-550ms locally, and a clock started here would hand every model
+// that much startup budget it did not earn.
 func Probe(ctx context.Context, cfg ProbeConfig) *Report {
 	r := &Report{}
 	defer r.Aggregate()
@@ -99,10 +104,21 @@ func Probe(ctx context.Context, cfg ProbeConfig) *Report {
 func checkStartup(ctx context.Context, cfg ProbeConfig) (CheckResult, *envelope.Client) {
 	res := CheckResult{ID: "C2", Name: CheckNames["C2"]}
 	budget := time.Duration(cfg.StartupSeconds) * time.Second
-	start := time.Now()
+	start := cfg.ModelStarted
+	if start.IsZero() {
+		start = time.Now()
+	}
 	deadline := start.Add(budget)
 
-	client, err := envelope.Dial(cfg.Target, budget)
+	// The probe's own container startup is spent from the model's budget, so
+	// it can in principle be gone already.
+	if remaining := time.Until(deadline); remaining <= 0 {
+		res.Detail = fmt.Sprintf("the %v startup budget was already spent before the probe could connect (%v elapsed since the model container started)",
+			budget, time.Since(start).Round(time.Millisecond))
+		return res, nil
+	}
+
+	client, err := envelope.Dial(cfg.Target, time.Until(deadline))
 	if err != nil {
 		res.Detail = fmt.Sprintf("no connection to %s within %v startup budget: %v", cfg.Target, budget, err)
 		return res, nil
