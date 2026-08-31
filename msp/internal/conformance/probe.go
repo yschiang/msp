@@ -22,9 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -228,7 +226,7 @@ func checkEnvelope(ctx context.Context, cfg ProbeConfig, golden envelope.GoldenP
 		c4.Detail = "no OK golden response to validate (see C3)"
 		return c3, c4
 	}
-	md, mdErr := loadMessageDescriptor(cfg.DescDir, m.Contract.OutputSchema)
+	md, mdErr := envelope.LoadMessageDescriptor(cfg.DescDir, m.Contract.OutputSchema)
 	if mdErr != nil {
 		c4.Detail = mdErr.Error()
 		return c3, c4
@@ -334,7 +332,7 @@ func CheckSchemaStatic(m *manifest.Manifest, descDir, goldenDir string) CheckRes
 	}{{"input", m.Contract.InputSchema}, {"output", m.Contract.OutputSchema}}
 	mds := map[string]protoreflect.MessageDescriptor{}
 	for _, s := range sides {
-		md, err := loadMessageDescriptor(descDir, s.schema)
+		md, err := envelope.LoadMessageDescriptor(descDir, s.schema)
 		if err != nil {
 			res.Detail = fmt.Sprintf("%s schema: %v", s.name, err)
 			return res
@@ -365,50 +363,18 @@ func CheckSchemaStatic(m *manifest.Manifest, descDir, goldenDir string) CheckRes
 	return res
 }
 
-// loadMessageDescriptor resolves a manifest SchemaRef to a message descriptor.
-// The descriptor path is an absolute container path, resolved like every
-// extracted file: filepath.Join(descDir, filepath.Base(path)). Non-protobuf
-// schema types are rejected here — the reference build implements only
-// protobuf payload schemas.
-func loadMessageDescriptor(descDir string, ref manifest.SchemaRef) (protoreflect.MessageDescriptor, error) {
-	if ref.Type != "protobuf" {
-		return nil, fmt.Errorf("schema type %q: not implemented in reference build", ref.Type)
-	}
-	path := filepath.Join(descDir, filepath.Base(ref.Descriptor))
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("descriptor %s (declared %s): %w", path, ref.Descriptor, err)
-	}
-	var fdset descriptorpb.FileDescriptorSet
-	if err := proto.Unmarshal(raw, &fdset); err != nil {
-		return nil, fmt.Errorf("descriptor %s: %w", path, err)
-	}
-	files, err := protodesc.NewFiles(&fdset)
-	if err != nil {
-		return nil, fmt.Errorf("descriptor %s: %w", path, err)
-	}
-	d, err := files.FindDescriptorByName(protoreflect.FullName(ref.MessageType))
-	if err != nil {
-		return nil, fmt.Errorf("message %q not found in %s: %w", ref.MessageType, path, err)
-	}
-	md, ok := d.(protoreflect.MessageDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("%q in %s is a %T, not a message", ref.MessageType, path, d)
-	}
-	return md, nil
-}
-
-// strictParse accepts a payload only if it (1) parses as md, (2) carries no
-// unknown fields anywhere in the message tree, and (3) re-serializes to the
-// identical bytes. (2) is load-bearing: a payload of a wire-compatible but
-// different type decodes into unknown fields, which re-serialize back to the
-// same bytes — byte-equality alone would rubber-stamp it.
+// strictParse accepts a payload only if it (1) parses as md and (2)
+// re-serializes to the identical bytes with unknown fields discarded. (2) is
+// load-bearing twice over: it rejects a non-canonical encoding, and because
+// DiscardUnknown drops unknown fields recursively before re-serializing, it
+// also rejects a payload of a wire-compatible but different type -- which
+// otherwise decodes into unknown fields that re-serialize back unchanged.
+//
+// The trade is diagnostic: this cannot name which field carried the unknown
+// bytes, only that the payload is not a canonical encoding of md.
 func strictParse(payload []byte, md protoreflect.MessageDescriptor) error {
 	msg := dynamicpb.NewMessage(md)
-	if err := proto.Unmarshal(payload, msg); err != nil {
-		return err
-	}
-	if err := checkNoUnknown("", msg); err != nil {
+	if err := (proto.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(payload, msg); err != nil {
 		return err
 	}
 	re, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
@@ -416,63 +382,10 @@ func strictParse(payload []byte, md protoreflect.MessageDescriptor) error {
 		return fmt.Errorf("re-serialize: %w", err)
 	}
 	if !bytes.Equal(re, payload) {
-		return fmt.Errorf("payload does not re-serialize identically (%d bytes in, %d bytes out): non-canonical encoding",
-			len(payload), len(re))
+		return fmt.Errorf("payload is not a canonical encoding of %s: unknown fields, or a non-minimal encoding (%d bytes in, %d bytes out)",
+			md.FullName(), len(payload), len(re))
 	}
 	return nil
-}
-
-// checkNoUnknown walks the message tree and errors on the first unknown
-// fields found, naming where.
-func checkNoUnknown(path string, msg protoreflect.Message) error {
-	if u := msg.GetUnknown(); len(u) > 0 {
-		where := path
-		if where == "" {
-			where = string(msg.Descriptor().Name())
-		}
-		return fmt.Errorf("%s carries %d bytes of unknown fields", where, len(u))
-	}
-	var walkErr error
-	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		sub := func(p string, m protoreflect.Message) bool {
-			if err := checkNoUnknown(p, m); err != nil {
-				walkErr = err
-				return false
-			}
-			return true
-		}
-		name := path + "." + string(fd.Name())
-		if path == "" {
-			name = string(fd.Name())
-		}
-		switch {
-		case fd.IsMap():
-			if fd.MapValue().Kind() != protoreflect.MessageKind {
-				return true
-			}
-			ok := true
-			v.Map().Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
-				ok = sub(fmt.Sprintf("%s[%s]", name, k), mv.Message())
-				return ok
-			})
-			return ok
-		case fd.IsList():
-			if fd.Kind() != protoreflect.MessageKind {
-				return true
-			}
-			for i := 0; i < v.List().Len(); i++ {
-				if !sub(fmt.Sprintf("%s[%d]", name, i), v.List().Get(i).Message()) {
-					return false
-				}
-			}
-			return true
-		case fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind:
-			return sub(name, v.Message())
-		default:
-			return true
-		}
-	})
-	return walkErr
 }
 
 // randomID returns a fresh probe request id. crypto/rand failure is

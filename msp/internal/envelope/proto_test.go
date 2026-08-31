@@ -12,7 +12,7 @@ import (
 
 // fixedPredictRequest is fully populated (every field set to a non-default
 // value, one metadata entry so map serialization stays deterministic) and is
-// shared by the round-trip test and the golden-bytes test below.
+// pinned byte-for-byte by the golden-bytes test below.
 func fixedPredictRequest() *servingv1.PredictRequest {
 	return &servingv1.PredictRequest{
 		RequestId:  "req-42",
@@ -33,75 +33,6 @@ func fixedPredictResponse() *servingv1.PredictResponse {
 		Payload:      []byte{0xaa, 0xbb},
 		Status:       servingv1.Status_INTERNAL_ERROR,
 		InferenceMs:  12345,
-	}
-}
-
-// TestPredictRequestRoundTrip marshals and unmarshals a PredictRequest with
-// every field set (including the embedded Timestamp and the map) and checks
-// each field survives the round trip.
-func TestPredictRequestRoundTrip(t *testing.T) {
-	req := fixedPredictRequest()
-	b, err := proto.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got servingv1.PredictRequest
-	if err := proto.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.RequestId != req.RequestId {
-		t.Errorf("RequestId = %q, want %q", got.RequestId, req.RequestId)
-	}
-	if got.DeviceId != req.DeviceId {
-		t.Errorf("DeviceId = %q, want %q", got.DeviceId, req.DeviceId)
-	}
-	if got.ModelName != req.ModelName {
-		t.Errorf("ModelName = %q, want %q", got.ModelName, req.ModelName)
-	}
-	if !got.GetIngestTime().AsTime().Equal(req.GetIngestTime().AsTime()) {
-		t.Errorf("IngestTime = %v, want %v", got.GetIngestTime().AsTime(), req.GetIngestTime().AsTime())
-	}
-	if !bytes.Equal(got.Payload, req.Payload) {
-		t.Errorf("Payload = %v, want %v", got.Payload, req.Payload)
-	}
-	if len(got.Metadata) != len(req.Metadata) || got.Metadata["trace_id"] != req.Metadata["trace_id"] {
-		t.Errorf("Metadata = %v, want %v", got.Metadata, req.Metadata)
-	}
-}
-
-// TestPredictResponseRoundTrip marshals and unmarshals a PredictResponse with
-// every field set (including the Status enum and the int64 inference_ms) and
-// checks each field survives the round trip.
-func TestPredictResponseRoundTrip(t *testing.T) {
-	resp := fixedPredictResponse()
-	b, err := proto.Marshal(resp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got servingv1.PredictResponse
-	if err := proto.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.RequestId != resp.RequestId {
-		t.Errorf("RequestId = %q, want %q", got.RequestId, resp.RequestId)
-	}
-	if got.ModelName != resp.ModelName {
-		t.Errorf("ModelName = %q, want %q", got.ModelName, resp.ModelName)
-	}
-	if got.ModelVersion != resp.ModelVersion {
-		t.Errorf("ModelVersion = %q, want %q", got.ModelVersion, resp.ModelVersion)
-	}
-	if got.ModelDigest != resp.ModelDigest {
-		t.Errorf("ModelDigest = %q, want %q", got.ModelDigest, resp.ModelDigest)
-	}
-	if !bytes.Equal(got.Payload, resp.Payload) {
-		t.Errorf("Payload = %v, want %v", got.Payload, resp.Payload)
-	}
-	if got.Status != resp.Status {
-		t.Errorf("Status = %v, want %v", got.Status, resp.Status)
-	}
-	if got.InferenceMs != resp.InferenceMs {
-		t.Errorf("InferenceMs = %d, want %d", got.InferenceMs, resp.InferenceMs)
 	}
 }
 
@@ -126,5 +57,27 @@ func TestPredictRequestGoldenBytes(t *testing.T) {
 	}
 	if !bytes.Equal(b, goldenPredictRequest) {
 		t.Fatalf("wire encoding changed:\n got  %#v\n want %#v", b, goldenPredictRequest)
+	}
+}
+
+// goldenPredictResponse is the wire encoding of fixedPredictResponse(),
+// captured the same way and for the same reason: PredictResponse carries the
+// Status enum and inference_ms, both varint-encoded, so a renumbering or an
+// int-type swap that a round trip would happily survive changes these bytes.
+var goldenPredictResponse = []byte{
+	0x0a, 0x06, 0x72, 0x65, 0x71, 0x2d, 0x34, 0x32, 0x12, 0x0a, 0x64, 0x65,
+	0x66, 0x65, 0x63, 0x74, 0x2d, 0x63, 0x6c, 0x73, 0x1a, 0x02, 0x76, 0x34,
+	0x22, 0x0f, 0x73, 0x68, 0x61, 0x32, 0x35, 0x36, 0x3a, 0x64, 0x65, 0x61,
+	0x64, 0x62, 0x65, 0x65, 0x66, 0x2a, 0x02, 0xaa, 0xbb, 0x30, 0x02, 0x38,
+	0xb9, 0x60,
+}
+
+func TestPredictResponseGoldenBytes(t *testing.T) {
+	b, err := proto.Marshal(fixedPredictResponse())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b, goldenPredictResponse) {
+		t.Fatalf("wire encoding changed:\n got  %#v\n want %#v", b, goldenPredictResponse)
 	}
 }

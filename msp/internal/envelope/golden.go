@@ -98,30 +98,42 @@ func compareExact(expected, actual []byte) error {
 		i, len(expected), len(actual))
 }
 
-func compareNumeric(expected, actual []byte, eps float64, out manifest.SchemaRef, descDir string) error {
-	if out.Type != "protobuf" {
-		return fmt.Errorf("numeric tolerance requires a protobuf output schema, manifest declares %q", out.Type)
+// LoadMessageDescriptor resolves ref to the message descriptor it names. The
+// declared path is a container path; the file is read from descDir under its
+// basename, which is how image extraction lays descriptors out. Only protobuf
+// schemas are implemented in the reference build.
+func LoadMessageDescriptor(descDir string, ref manifest.SchemaRef) (protoreflect.MessageDescriptor, error) {
+	if ref.Type != "protobuf" {
+		return nil, fmt.Errorf("schema type %q: not implemented in reference build", ref.Type)
 	}
-	descPath := filepath.Join(descDir, filepath.Base(out.Descriptor))
-	raw, err := os.ReadFile(descPath)
+	path := filepath.Join(descDir, filepath.Base(ref.Descriptor))
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("output descriptor: %w", err)
+		return nil, fmt.Errorf("descriptor %s (declared %s): %w", path, ref.Descriptor, err)
 	}
 	var fdset descriptorpb.FileDescriptorSet
 	if err := proto.Unmarshal(raw, &fdset); err != nil {
-		return fmt.Errorf("output descriptor %s: %w", descPath, err)
+		return nil, fmt.Errorf("descriptor %s: %w", path, err)
 	}
 	files, err := protodesc.NewFiles(&fdset)
 	if err != nil {
-		return fmt.Errorf("output descriptor %s: %w", descPath, err)
+		return nil, fmt.Errorf("descriptor %s: %w", path, err)
 	}
-	d, err := files.FindDescriptorByName(protoreflect.FullName(out.MessageType))
+	d, err := files.FindDescriptorByName(protoreflect.FullName(ref.MessageType))
 	if err != nil {
-		return fmt.Errorf("output message %q not found in %s: %w", out.MessageType, descPath, err)
+		return nil, fmt.Errorf("message %q not found in %s: %w", ref.MessageType, path, err)
 	}
 	md, ok := d.(protoreflect.MessageDescriptor)
 	if !ok {
-		return fmt.Errorf("output message %q in %s is a %T, not a message", out.MessageType, descPath, d)
+		return nil, fmt.Errorf("%q in %s is a %T, not a message", ref.MessageType, path, d)
+	}
+	return md, nil
+}
+
+func compareNumeric(expected, actual []byte, eps float64, out manifest.SchemaRef, descDir string) error {
+	md, err := LoadMessageDescriptor(descDir, out)
+	if err != nil {
+		return fmt.Errorf("output %w", err)
 	}
 
 	exp := dynamicpb.NewMessage(md)

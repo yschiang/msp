@@ -49,7 +49,7 @@ func startBufServer(t *testing.T) (*fakeModelServer, *Client) {
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
 
-	c, err := dial("passthrough:///bufnet", 2*time.Second,
+	c, err := Dial("passthrough:///bufnet", 2*time.Second,
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return lis.DialContext(ctx)
 		}))
@@ -143,7 +143,7 @@ func TestHealth(t *testing.T) {
 
 func TestDialTimesOutWhenUnreachable(t *testing.T) {
 	start := time.Now()
-	_, err := dial("passthrough:///nowhere", 200*time.Millisecond,
+	_, err := Dial("passthrough:///nowhere", 200*time.Millisecond,
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return nil, errors.New("no route")
 		}))

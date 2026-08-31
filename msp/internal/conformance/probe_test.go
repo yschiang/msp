@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yschiang/msp/msp/internal/envelope"
+
 	examplev1 "github.com/yschiang/msp/msp/gen/examplev1"
 	servingv1 "github.com/yschiang/msp/msp/gen/servingv1"
 	"github.com/yschiang/msp/msp/internal/manifest"
@@ -359,7 +361,7 @@ func TestCheckSchemaStaticCorruptGolden(t *testing.T) {
 func TestStrictParseCatchesNonMinimalEncoding(t *testing.T) {
 	// An explicitly-encoded zero float (field 2 of DefectOutput) parses to
 	// the same message as its absence, so only re-serialization catches it.
-	md, err := loadMessageDescriptor(exampleDescDir, exampleManifest().Contract.OutputSchema)
+	md, err := envelope.LoadMessageDescriptor(exampleDescDir, exampleManifest().Contract.OutputSchema)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,14 +24,10 @@ type Client struct {
 }
 
 // Dial connects to target (plaintext; model containers terminate no TLS) and
-// waits until the connection is ready or timeout elapses.
-func Dial(target string, timeout time.Duration) (*Client, error) {
-	return dial(target, timeout)
-}
-
-// dial is the test seam: bufconn tests pass a WithContextDialer option here so
-// the readiness wait runs without a real port.
-func dial(target string, timeout time.Duration, extra ...grpc.DialOption) (*Client, error) {
+// waits until the connection is ready or timeout elapses. Every caller passes
+// two arguments; extra exists so bufconn tests can add a WithContextDialer and
+// run the readiness wait without a real port.
+func Dial(target string, timeout time.Duration, extra ...grpc.DialOption) (*Client, error) {
 	opts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, extra...)
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {

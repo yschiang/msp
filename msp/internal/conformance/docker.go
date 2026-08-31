@@ -107,7 +107,7 @@ func VerifyImage(ctx context.Context, image string, opts VerifyOptions) (*Report
 	}
 
 	// Declared protobuf descriptors, flat by basename next to the manifest
-	// (the convention loadMessageDescriptor and envelope.Compare share).
+	// (the convention envelope.LoadMessageDescriptor and Compare share).
 	var c4Static CheckResult
 	descByBase := map[string]string{}
 	descOK := true
