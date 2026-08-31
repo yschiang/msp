@@ -380,11 +380,20 @@ func TestRunRespectsContextCancellation(t *testing.T) {
 }
 
 // TestRunAlreadyCancelledContextIsNotSilentSuccess is the sharpest case of
-// Important-1: ctx is cancelled *before* Run is even called, so nothing is
-// ever sent. Without the Sent<cfg.N check, Result is all-zero, Failed(false)
-// and Failed(true) both report false, and main.go would exit 0 having sent
-// nothing -- Task 9's whole point is that exit code is trustworthy. Run must
-// surface this as an error instead.
+// Important-1: ctx is cancelled *before* Run is even called, so essentially
+// nothing gets sent. Without the Sent<cfg.N check, a near-all-zero Result
+// would report success by omission -- Task 9's whole point is that exit code
+// is trustworthy. Run must surface this as an error instead.
+//
+// This test only pins err != nil and Sent < cfg.N -- the two things
+// Important-1 actually promises. It does NOT assert anything about
+// Failed(): select among simultaneously-ready cases has no ordering
+// guarantee, so a worker already blocked receiving on jobs can occasionally
+// win a job or two against the also-ready ctx.Done() case even though ctx
+// was cancelled before Run was ever called. When that happens, the leaked
+// job is handed the already-cancelled ctx, client.Predict fails immediately
+// with a genuine transport error, and Failed() correctly reports true --
+// that is not a bug, so this test must not require Failed() to be false.
 func TestRunAlreadyCancelledContextIsNotSilentSuccess(t *testing.T) {
 	rec := &recordingServer{inner: newStubServer(t)}
 	addr := startTestServer(t, rec)
@@ -410,9 +419,6 @@ func TestRunAlreadyCancelledContextIsNotSilentSuccess(t *testing.T) {
 	// the feeder stops well short of cfg.N, not that it sends exactly zero.
 	if res.Sent >= cfg.N {
 		t.Errorf("Sent = %d, want < %d (the feeder should stop almost immediately on an already-cancelled ctx)", res.Sent, cfg.N)
-	}
-	if res.Failed(false) || res.Failed(true) {
-		t.Fatal("Failed() alone reports false for a near-all-zero Result -- the error return, not Failed, is what must catch this case")
 	}
 }
 

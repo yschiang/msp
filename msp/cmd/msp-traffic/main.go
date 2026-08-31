@@ -49,14 +49,17 @@ func main() {
 	defer stop()
 
 	res, err := traffic.Run(ctx, cfg)
+
+	// Print the summary before checking err: a partial run (ctx cancelled
+	// mid-flight) still has counts worth seeing, and those are exactly what
+	// an operator watching an interrupted run wants -- not just the error.
+	fmt.Printf("sent=%d ok=%d invalid_input=%d internal_error=%d transport_err=%d p50=%v p99=%v\n",
+		res.Sent, res.OK, res.InvalidInput, res.InternalError, res.TransportErr, res.P50, res.P99)
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "msp-traffic: %v\n", err)
 		os.Exit(1)
 	}
-
-	fmt.Printf("sent=%d ok=%d invalid_input=%d internal_error=%d transport_err=%d p50=%v p99=%v\n",
-		res.Sent, res.OK, res.InvalidInput, res.InternalError, res.TransportErr, res.P50, res.P99)
-
 	if res.Failed(*goldenDir != "") {
 		os.Exit(1)
 	}
