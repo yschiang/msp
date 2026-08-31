@@ -1,0 +1,11 @@
+# C7 negative fixture: a manifest asking for more than the platform allows.
+#
+# runtime.resources.limits.cpu goes from "2" to "64", over the reference build's
+# 8 cpu ceiling (conformance.DefaultCeilings, the Phase 0 stand-in for the
+# spec's Q7 conformance-pool quota). Requests and memory are untouched, so C7
+# fails on exactly one quantity. C7 is host-side and static, so the model still
+# starts and every other check passes.
+FROM msp-example-defect-cls:dev
+LABEL msp.negative-fixture="c7-oversized"
+RUN grep -q '    limits: {cpu: "2", memory: 2Gi}' /opt/msp/model-manifest.yaml \
+ && sed -i 's|    limits: {cpu: "2", memory: 2Gi}|    limits: {cpu: "64", memory: 2Gi}|' /opt/msp/model-manifest.yaml

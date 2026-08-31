@@ -41,6 +41,21 @@ image-probe:
 	docker build -t msp-conform-probe:dev -f msp/Dockerfile.probe msp
 	rm msp/msp-conform
 
+# All three Go binaries into bin/ (git-ignored), named exactly as the spec's
+# CLIs. Separate from image-probe's output on purpose: that one cross-compiles a
+# static linux binary to msp/msp-conform because the probe image's build context
+# is msp/, and deletes it again. Same source, different GOOS, different path --
+# so the two targets never overwrite each other's output.
+.PHONY: build
+build:
+	mkdir -p bin
+	cd msp && go build -o ../bin/ ./cmd/...
+
+# The Phase 0 acceptance gate (MSP-SPEC-001 §11). Builds everything itself.
+.PHONY: phase0-accept
+phase0-accept:
+	bash tests/acceptance/phase0_test.sh
+
 # Copy the canonical manifest schema over its //go:embed-ed copy. Doubles as the
 # drift check: it exits non-zero when the copy was stale, so CI can just run it.
 # (`go test ./...` catches the same drift via TestSchemaCopyMatchesCanonical.)

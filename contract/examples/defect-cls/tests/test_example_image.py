@@ -31,9 +31,15 @@ STARTUP_TIMEOUT_S = 30  # manifest runtime.startupSeconds
 def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
-    return subprocess.run(
-        ["docker", "info"], capture_output=True, timeout=10
-    ).returncode == 0
+    try:
+        return subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=10
+        ).returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        # This runs at module import, inside the pytestmark expression. An
+        # unhandled exception here is a pytest COLLECTION ERROR, not a skip --
+        # a hung docker daemon would fail the suite instead of stepping over it.
+        return False
 
 
 pytestmark = pytest.mark.skipif(
