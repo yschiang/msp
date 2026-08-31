@@ -8,3 +8,61 @@
 - Talk to me like I'm five years old. My brain is fried.
 - Simple words. Short sentences. Only the essentials.
 - If you must use a technical term, explain it right after you say it.
+
+## Module map (spec §11 general requirement 1)
+
+Where things live and who owns what. Full layout rules: `docs/SCAFFOLDING.md`.
+
+| Path                              | Owns                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| `contract/proto/`                 | The only source of truth for every message. All Go/Python/Java code is generated from it. |
+| `contract/manifest.schema.json`   | What a `model-manifest.yaml` is allowed to say. Conformance check C1 validates against it. |
+| `contract/sdk-python/`            | The scientist SDK (`msp` package): `BaseModel`, `serve`, the gRPC servicer, manifest loading. Also holds the committed generated Python protos. |
+| `contract/base-image/`            | `msp-base:dev` — the image every model image is built FROM.                               |
+| `contract/examples/defect-cls/`   | The reference model image that must pass all seven checks.                                |
+| `contract/examples/negative/`     | Eight deliberately-broken images, one per check, that must FAIL. They are what makes the gate a gate. |
+| `contract/java/`                  | Generated grpc-java stubs for MYSVC. Codegen only, no hand-written Java.                  |
+| `msp/cmd/`                        | The three binaries: `msp-conform`, `router-stub`, `msp-traffic`.                          |
+| `msp/internal/conformance/`       | Checks C1–C7 and the docker orchestration behind `msp-conform verify`.                    |
+| `msp/internal/{envelope,manifest,stub,traffic}/` | Envelope client + golden comparison, manifest loading, the canned ModelService, the load driver. |
+| `tests/acceptance/`               | `phase0_test.sh`, the Phase 0 gate.                                                       |
+| `bin/`                            | Built Go binaries (`make build`). Git-ignored.                                            |
+
+## Frozen interfaces — changing these is a breaking change
+
+Flag it in the commit message and get a decision ticket before touching any of them.
+
+1. **The envelope proto** — `contract/proto/msp/serving/v1/model_service.proto`:
+   `ModelService.Predict/Health`, `PredictRequest`, `PredictResponse`, `Status`.
+   Every model image, MYSVC, the Router, and all three binaries speak it.
+2. **The manifest schema** — `contract/manifest.schema.json`, plus its embedded
+   copy `msp/internal/manifest/manifest.schema.json` (kept in sync by
+   `make sync-schema`; `go test ./...` fails on drift). Fixed values live here:
+   `apiVersion: msp/v1`, `contract.port: 8080`, the `comparisonPolicy` pattern.
+3. **The scientist SDK surface** — `msp.BaseModel` (`load()`, `predict(bytes) -> bytes`)
+   and `msp.serve(model)`. Startup order is part of the contract: the gRPC server
+   starts *before* `load()`, so `Health` answers `ready=false` while loading.
+   Check C2 depends on that.
+4. **In-image paths** — `/opt/msp/model-manifest.yaml`, `/opt/msp/model.py`,
+   `/opt/msp/config/`, `/opt/msp/schemas/`, `/opt/msp/golden/`.
+5. **The `msp-conform verify` CLI contract** —
+   `msp-conform verify <image> [--limits f.yaml] [--json] [--keep]`.
+   Exit 0 only if all seven checks pass; 1 if any failed or did not run; 2 for a
+   usage or infrastructure error. `--json` prints
+   `{Image, Checks: [{ID, Name, Pass, Detail}], Pass}` with **stable check IDs
+   `C1`…`C7`**. The negative fixtures assert on those IDs.
+
+## Test commands
+
+```sh
+make phase0-accept                  # the Phase 0 gate: builds everything, then all of the below plus the negative fixtures
+cd msp && go test ./...             # Go unit tests
+PYTHONPATH=contract/sdk-python python3 -m pytest \
+  contract/sdk-python/tests contract/examples/defect-cls/tests   # Python SDK + image smoke test
+mvn -q -f contract/java/pom.xml verify                           # Java bindings compile
+```
+
+`make phase0-accept` needs docker, go, python3, protoc (with `grpcio-tools`),
+and maven. It takes roughly 80s warm, a few minutes cold (the base image's
+`pip install`). It cleans up its containers and background processes on every
+exit path, including Ctrl-C.

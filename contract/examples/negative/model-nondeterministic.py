@@ -7,9 +7,10 @@ simply never agrees with itself.
 
 Deliberately unseeded: C6 sends the same golden input three times on one
 connection and compares the three responses pairwise under comparisonPolicy
-exact. Three independent draws from random.random() are equal with probability
-~2^-53, so this fixture fails C6 on every run -- it is not a flaky test that
-happens to usually go red.
+exact. DefectOutput.score is a proto `float`, so two draws collide only if they
+round to the same float32 -- on the order of 1 in 10 million per pair, over
+three pairs. This fixture fails C6 on every practical run; it is not a flaky
+test that merely tends to go red.
 """
 
 import random
