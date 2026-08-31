@@ -53,6 +53,12 @@ Makefile                       # top-level entry points; delegates to go/mvn/pip
 - **Python**: `pip install -e contract/sdk-python[dev]`; tests with `pytest`.
 - **Images**: built via Makefile targets, tagged `<name>:dev` locally
   (`msp-base:dev`, `msp-example-defect-cls:dev`, `msp-conform-probe:dev`).
+  The one exception is `contract/examples/negative/`: its eight `msp-neg-*:dev`
+  fixtures are built by `tests/acceptance/phase0_test.sh` itself, because the
+  same loop already carries each fixture's name, targeted check ID and
+  description. A Makefile target would be a second copy of that list to keep in
+  sync, which is the drift `contract/examples/negative/README.md` argues against.
+  Nothing outside the acceptance gate builds or consumes them.
 - **Top-level Makefile** is the developer entry point: `make proto descriptors
   proto-check build images test phase0-accept`. CI (when it exists) calls the same
   targets. `test` runs the Go tests, the Python tests and the schema drift check;
