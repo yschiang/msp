@@ -154,6 +154,22 @@ func TestLoad(t *testing.T) {
 			wantErr: true,
 			wantIn:  []string{"/contract/inputSchema", "messageType"},
 		},
+		// Phase 1's Sync Controller builds the Deployment from
+		// runtime.resources, and C7 checks it against the platform
+		// ceilings -- so a manifest that omits the section must not be
+		// able to skip C7 by passing C1.
+		{
+			name:    "missing runtime.resources section",
+			raw:     mutate(t, "  resources:\n", "  resourcesX:\n"),
+			wantErr: true,
+			wantIn:  []string{"/runtime", "missing properties: 'resources'"},
+		},
+		{
+			name:    "empty runtime.resources.limits map",
+			raw:     mutate(t, `  limits:   {cpu: "4", memory: 8Gi, nvidia.com/gpu: 1}`, "  limits:   {}"),
+			wantErr: true,
+			wantIn:  []string{"/runtime/resources/limits", "minimum 1 properties"},
+		},
 		{
 			name:    "startupSeconds above 600",
 			raw:     mutate(t, "  startupSeconds: 120", "  startupSeconds: 601"),

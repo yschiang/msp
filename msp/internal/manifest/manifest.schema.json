@@ -45,8 +45,17 @@
     "runtime": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["startupSeconds"],
+      "required": ["resources", "startupSeconds"],
       "properties": {
+        "resources": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": { "$ref": "#/$defs/resourceMap" },
+            "limits": { "$ref": "#/$defs/resourceMap" }
+          }
+        },
         "startupSeconds": {
           "type": "integer",
           "minimum": 1,
@@ -77,6 +86,12 @@
     }
   },
   "$defs": {
+    "resourceMap": {
+      "description": "Resource quantities, k8s style. minProperties keeps C7 (resource ceilings) from being bypassable by declaring an empty map.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": ["string", "number"] }
+    },
     "schemaRef": {
       "type": "object",
       "additionalProperties": true,
