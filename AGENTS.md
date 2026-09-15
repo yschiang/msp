@@ -27,7 +27,7 @@ Where things live and who owns what. Full layout rules: `docs/SCAFFOLDING.md`.
 | `msp/internal/{envelope,manifest,stub,traffic}/` | Envelope client + golden comparison, manifest loading, the canned ModelService, the load driver. |
 | `msp/api/v1/`                     | The `ModelDeployment` CRD types (`msp.platform/v1`) and their generated deepcopy. The CRD YAML in `deploy/platform/crd/` is generated from here by `make crd`. |
 | `msp/internal/syncctl/`           | The Sync Controller: state machine, digest pinning and copy, Deployment/Service/HPA builders. Unit-tested with the fake client. |
-| `deploy/`                         | The GitOps tree (spec §9): CRs under `clusters/<blue|green>/deployments/`, the CRD and namespaces under `platform/`. `kubectl apply` stands in for ArgoCD. |
+| `deploy/`                         | The GitOps tree (spec §9): CRs under `clusters/{blue,green}/deployments/`, the CRD and namespaces under `platform/`. `kubectl apply` stands in for ArgoCD. |
 | `tests/acceptance/`               | `phase0_test.sh` and `phase1_test.sh`, the two gates.                                    |
 | `bin/`                            | Built Go binaries (`make build`). Git-ignored.                                            |
 
