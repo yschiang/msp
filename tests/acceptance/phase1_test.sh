@@ -215,6 +215,12 @@ POD_IMAGE="$(k get pods -n "$NS" -l "msp.platform/deployment=$CR_NAME" -o 'jsonp
 [ "$POD_IMAGE" = "$INT_REG_HOST/defect-cls@$PINNED" ] || fail "pod image $POD_IMAGE is not the internal digest ref"
 echo "  passed: $(md_field "$CR_NAME" '{.status.conformance.passed}')"
 echo "  pod image: $POD_IMAGE"
+# The only CEL coverage in the suite: the fake client in the Go tests does not
+# evaluate x-kubernetes-validations, so the type-level "digest cannot be
+# removed once set" rule is only ever exercised against a real API server.
+k patch modeldeployment -n "$NS" "$CR_NAME" --type=json -p '[{"op":"remove","path":"/spec/modelRef/digest"}]' >/dev/null 2>&1 &&
+	fail "API server allowed spec.modelRef.digest to be removed"
+echo "  API server refused to remove spec.modelRef.digest"
 
 # ------------------------------------------------------------------ step 6 --
 

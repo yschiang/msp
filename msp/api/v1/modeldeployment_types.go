@@ -17,12 +17,21 @@ const (
 
 // ModelRef names a model image at a source registry. Digest is written once
 // by the controller after resolution and is immutable afterwards (D5, D8).
+// The type-level rule closes the hole the field-level one leaves: a rule on an
+// optional field does not fire when the field is removed, so removing digest
+// would otherwise unpin the object.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.digest) || has(self.digest)",message="spec.modelRef.digest cannot be removed once set"
 type ModelRef struct {
-	// +kubebuilder:validation:MinLength=1
+	// The one source Phase 1 supports; --model-center-registry is its address.
+	// A source -> registry map replaces this enum when a second source exists (design D14).
+	// +kubebuilder:validation:Enum=model-center
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.modelRef.source is immutable"
 	Source string `json:"source"`
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.modelRef.model is immutable"
 	Model string `json:"model"`
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.modelRef.version is immutable"
 	Version string `json:"version"`
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
@@ -30,6 +39,7 @@ type ModelRef struct {
 	Digest string `json:"digest,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="self.max >= self.min",message="replicas.max must be >= replicas.min"
 type Replicas struct {
 	// +kubebuilder:validation:Minimum=1
 	Min int32 `json:"min"`
@@ -41,6 +51,7 @@ type ModelDeploymentSpec struct {
 	ModelRef ModelRef `json:"modelRef"`
 	// Logical target, validated against the object's namespace (D14).
 	// +kubebuilder:validation:Enum=blue;green
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.cluster is immutable"
 	Cluster  string   `json:"cluster"`
 	Replicas Replicas `json:"replicas"`
 }
