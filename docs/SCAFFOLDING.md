@@ -54,7 +54,7 @@ Makefile                       # top-level entry points; delegates to go/mvn/pip
 - **Go**: single module `msp/`, requires **Go 1.23+**; `cd msp && go build ./... && go test ./...`
   must pass from a clean checkout with only Go + Docker installed. Binaries land in
   `bin/` via `make build`, named exactly as the spec's CLIs (`msp-conform`,
-  `router-stub`, `msp-traffic`).
+  `router-stub`, `msp-traffic`, `msp-sync`).
 - **Java bindings**: Maven only (no Gradle). `mvn -q -f contract/java/pom.xml verify`
   compiles generated stubs with JDK 17. No hand-written Java in `src/main` — the
   jar is pure codegen. `src/test` holds exactly one class,

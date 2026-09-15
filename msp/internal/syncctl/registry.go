@@ -21,11 +21,15 @@ type Registries struct {
 	Internal    string
 }
 
-func (r Registries) SourceRef(model, version string) string { return r.ModelCenter + "/" + model + ":" + version }
+func (r Registries) SourceRef(model, version string) string {
+	return r.ModelCenter + "/" + model + ":" + version
+}
 func (r Registries) PinnedSourceRef(model, digest string) string {
 	return r.ModelCenter + "/" + model + "@" + digest
 }
-func (r Registries) InternalRef(model, digest string) string { return r.Internal + "/" + model + "@" + digest }
+func (r Registries) InternalRef(model, digest string) string {
+	return r.Internal + "/" + model + "@" + digest
+}
 
 func craneOpts(ctx context.Context) []crane.Option {
 	return []crane.Option{crane.Insecure, crane.WithContext(ctx)}

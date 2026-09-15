@@ -37,7 +37,7 @@ Flag it in the commit message and get a decision ticket before touching any of t
 
 1. **The envelope proto** — `contract/proto/msp/serving/v1/model_service.proto`:
    `ModelService.Predict/Health`, `PredictRequest`, `PredictResponse`, `Status`.
-   Every model image, MYSVC, the Router, and all three binaries speak it.
+   Every model image, MYSVC, the Router, and all four binaries speak it.
 2. **The manifest schema** — `contract/manifest.schema.json`, plus its embedded
    copy `msp/internal/manifest/manifest.schema.json` (kept in sync by
    `make sync-schema`; `go test ./...` fails on drift). Fixed values live here:
