@@ -396,12 +396,12 @@ func TestShutdownCancelsInFlightConformanceRun(t *testing.T) {
 	md := newMD()
 	md.Status = mspv1.ModelDeploymentStatus{}
 	r, c := newReconciler(t, md)
-	var once sync.Once
+	var once, returnedOnce sync.Once
 	started, returned := make(chan struct{}), make(chan struct{})
 	r.Verify = func(ctx context.Context, _ string) (*conformance.Report, error) {
 		once.Do(func() { close(started) })
 		<-ctx.Done()
-		close(returned)
+		returnedOnce.Do(func() { close(returned) })
 		return failC3Report(), nil // a half-finished run is not a verdict
 	}
 	driveTo(t, r, c, md, mspv1.PhaseConformanceRunning)
@@ -431,5 +431,23 @@ func TestShutdownCancelsInFlightConformanceRun(t *testing.T) {
 	}
 	if got := get(t, c, md); got.Status.Phase != mspv1.PhaseConformanceRunning {
 		t.Errorf("phase %q after a cancelled run, want ConformanceRunning", got.Status.Phase)
+	}
+
+	// After stop, a first run for a fresh digest must not race Add against
+	// Wait (the WaitGroup misuse this fix closes) — it should come back
+	// already finished as cancelled, with Verify never invoked.
+	verifyCalled := false
+	newRun := r.runs.start(badDigest, func(context.Context) (*conformance.Report, error) {
+		verifyCalled = true
+		return passReport(), nil
+	})
+	if !newRun.finished() {
+		t.Error("run started after shutdown must come back already finished")
+	}
+	if !errors.Is(newRun.err, context.Canceled) {
+		t.Errorf("run started after shutdown: err = %v, want context.Canceled", newRun.err)
+	}
+	if verifyCalled {
+		t.Error("Verify must not be called for a run started after shutdown")
 	}
 }

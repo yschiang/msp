@@ -38,11 +38,12 @@ func (r *run) finished() bool {
 }
 
 type runTable struct {
-	mu     sync.Mutex
-	runs   map[string]*run
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu      sync.Mutex
+	runs    map[string]*run
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	stopped bool
 }
 
 // baseLocked is the parent context of every run, created on first use. The
@@ -64,6 +65,13 @@ func (t *runTable) start(digest string, fn func(ctx context.Context) (*conforman
 		t.runs = map[string]*run{}
 	}
 	if r, ok := t.runs[digest]; ok {
+		return r
+	}
+	if t.stopped {
+		// Shutting down: report the run as cancelled so the caller treats it
+		// as infrastructure and a restarted controller retries the digest.
+		r := &run{done: make(chan struct{}), err: context.Canceled}
+		close(r.done)
 		return r
 	}
 	ctx := t.baseLocked()
@@ -100,6 +108,7 @@ func (t *runTable) stop(timeout time.Duration) bool {
 	t.mu.Lock()
 	t.baseLocked() // a table nothing ever used still gets a cancel to call
 	t.cancel()
+	t.stopped = true
 	t.mu.Unlock()
 
 	done := make(chan struct{})
