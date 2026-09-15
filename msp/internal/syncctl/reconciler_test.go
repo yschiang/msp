@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -386,5 +387,49 @@ func TestRejectedIsTerminal(t *testing.T) {
 	got := get(t, c, md)
 	if called || got.Status.Phase != mspv1.PhaseRejected || got.Status.Message != "kept" {
 		t.Errorf("Rejected must be left alone (D5): called=%v %+v", called, got.Status)
+	}
+}
+
+// Shutdown must reach an in-flight conformance run: the run holds docker
+// containers and a temp dir that only VerifyImage's deferred cleanup removes.
+func TestShutdownCancelsInFlightConformanceRun(t *testing.T) {
+	md := newMD()
+	md.Status = mspv1.ModelDeploymentStatus{}
+	r, c := newReconciler(t, md)
+	var once sync.Once
+	started, returned := make(chan struct{}), make(chan struct{})
+	r.Verify = func(ctx context.Context, _ string) (*conformance.Report, error) {
+		once.Do(func() { close(started) })
+		<-ctx.Done()
+		close(returned)
+		return failC3Report(), nil // a half-finished run is not a verdict
+	}
+	driveTo(t, r, c, md, mspv1.PhaseConformanceRunning)
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key(md)}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+
+	if !r.runs.stop(5 * time.Second) {
+		t.Fatal("the in-flight run never returned after shutdown cancelled it")
+	}
+	select {
+	case <-returned:
+	default:
+		t.Fatal("Verify did not return")
+	}
+
+	// The next reconcile treats it as infrastructure, not as a verdict.
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key(md)}); err == nil {
+		t.Error("a cancelled run must surface as an infrastructure error, so it is retried")
+	}
+	r.runs.mu.Lock()
+	_, still := r.runs.runs[goodDigest]
+	r.runs.mu.Unlock()
+	if still {
+		t.Error("cancelled run was not forgotten; a restarted controller would never retry it")
+	}
+	if got := get(t, c, md); got.Status.Phase != mspv1.PhaseConformanceRunning {
+		t.Errorf("phase %q after a cancelled run, want ConformanceRunning", got.Status.Phase)
 	}
 }

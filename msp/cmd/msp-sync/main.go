@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -44,10 +45,15 @@ func main() {
 	if err := mspv1.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
+	// Room for the controller's own shutdown runnable, which waits up to 60s
+	// for cancelled conformance runs to remove their docker containers; the
+	// manager's default 30s would cut that wait short.
+	grace := 90 * time.Second
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		// ponytail: no metrics endpoint; the default :8080 is the model port.
-		Metrics: metricsserver.Options{BindAddress: "0"},
+		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		GracefulShutdownTimeout: &grace,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "msp-sync: manager:", err)

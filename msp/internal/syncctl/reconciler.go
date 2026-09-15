@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	mspv1 "github.com/yschiang/msp/msp/api/v1"
 	"github.com/yschiang/msp/msp/internal/conformance"
@@ -37,6 +38,11 @@ var DefaultClusterNamespaces = map[string]string{"blue": "msp-blue", "green": "m
 // background run. ponytail: polling, not a completion channel wired into the
 // work queue; a minute-long run polled every 5s is fine.
 const requeueWhileRunning = 5 * time.Second
+
+// shutdownGrace bounds how long shutdown waits for cancelled conformance runs
+// to clean up. Cancellation makes them give up at the next docker call, so the
+// wait is short in practice.
+const shutdownGrace = 60 * time.Second
 
 type Reconciler struct {
 	client.Client
@@ -55,6 +61,20 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// A conformance run outlives the reconcile that started it, so it also
+	// outlives mgr.Start unless someone waits: the process would exit with a
+	// model container, a probe container and .msp-conform-tmp/<runID> behind
+	// it, none of them labelled, none of them anyone else's to clean up. This
+	// runnable holds mgr.Start open until the cancelled runs have cleaned up.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		<-ctx.Done()
+		if !r.runs.stop(shutdownGrace) {
+			return fmt.Errorf("conformance runs still in flight after %s; docker containers may be stranded", shutdownGrace)
+		}
+		return nil
+	})); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&mspv1.ModelDeployment{}).
 		Owns(&appsv1.Deployment{}). // ready-replica changes drive Deployable ⇄ Deployed (D4)
@@ -167,10 +187,12 @@ func (r *Reconciler) manifestFor(ctx context.Context, digest, ref string) (*mani
 func (r *Reconciler) conformanceRunning(ctx context.Context, md *mspv1.ModelDeployment) (ctrl.Result, error) {
 	digest := md.Status.PinnedDigest
 	ref := r.Registries.PinnedSourceRef(md.Spec.ModelRef.Model, digest)
-	run := r.runs.start(digest, func() (*conformance.Report, error) {
-		// Background, not ctx: the reconcile that starts the run returns
-		// long before the run finishes (D12).
-		return r.Verify(context.Background(), ref)
+	run := r.runs.start(digest, func(runCtx context.Context) (*conformance.Report, error) {
+		// runCtx, not this reconcile's ctx: the reconcile that starts the run
+		// returns long before the run finishes (D12). It is the run table's
+		// own context, cancelled at shutdown so VerifyImage stops and its
+		// deferred cleanup removes the containers it created.
+		return r.Verify(runCtx, ref)
 	})
 	if !run.finished() {
 		return ctrl.Result{RequeueAfter: requeueWhileRunning}, nil
