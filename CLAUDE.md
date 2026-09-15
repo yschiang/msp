@@ -22,10 +22,13 @@ Where things live and who owns what. Full layout rules: `docs/SCAFFOLDING.md`.
 | `contract/examples/defect-cls/`   | The reference model image that must pass all seven checks.                                |
 | `contract/examples/negative/`     | Eight deliberately-broken images that must FAIL, one per check except C1, which gets two (missing manifest, schema-invalid manifest). They are what makes the gate a gate. |
 | `contract/java/`                  | Generated grpc-java stubs for MYSVC. `src/main` is codegen only; `src/test` holds one hand-written round-trip client the acceptance gate runs against `router-stub`. |
-| `msp/cmd/`                        | The three binaries: `msp-conform`, `router-stub`, `msp-traffic`.                          |
+| `msp/cmd/`                        | The four binaries: `msp-conform`, `router-stub`, `msp-traffic`, `msp-sync`.                |
 | `msp/internal/conformance/`       | Checks C1–C7 and the docker orchestration behind `msp-conform verify`.                    |
 | `msp/internal/{envelope,manifest,stub,traffic}/` | Envelope client + golden comparison, manifest loading, the canned ModelService, the load driver. |
-| `tests/acceptance/`               | `phase0_test.sh`, the Phase 0 gate.                                                       |
+| `msp/api/v1/`                     | The `ModelDeployment` CRD types (`msp.platform/v1`) and their generated deepcopy. The CRD YAML in `deploy/platform/crd/` is generated from here by `make crd`. |
+| `msp/internal/syncctl/`           | The Sync Controller: state machine, digest pinning and copy, Deployment/Service/HPA builders. Unit-tested with the fake client. |
+| `deploy/`                         | The GitOps tree (spec §9): CRs under `clusters/<blue|green>/deployments/`, the CRD and namespaces under `platform/`. `kubectl apply` stands in for ArgoCD. |
+| `tests/acceptance/`               | `phase0_test.sh` and `phase1_test.sh`, the two gates.                                    |
 | `bin/`                            | Built Go binaries (`make build`). Git-ignored.                                            |
 
 ## Frozen interfaces — changing these is a breaking change
@@ -42,7 +45,9 @@ Flag it in the commit message and get a decision ticket before touching any of t
 3. **The scientist SDK surface** — `msp.BaseModel` (`load()`, `predict(bytes) -> bytes`)
    and `msp.serve(model)`. Startup order is part of the contract: the gRPC server
    starts *before* `load()`, so `Health` answers `ready=false` while loading.
-   Check C2 depends on that.
+   Check C2 depends on that. The SDK also serves the standard grpc.health.v1
+   Health service (service name "") on the same port, NOT_SERVING until load()
+   returns; Kubernetes' probes read it. Decision ticket #24.
 4. **In-image paths** — `/opt/msp/model-manifest.yaml`, `/opt/msp/model.py`,
    `/opt/msp/config/`, `/opt/msp/schemas/`, `/opt/msp/golden/`.
 5. **The `msp-conform verify` CLI contract** —
@@ -56,6 +61,8 @@ Flag it in the commit message and get a decision ticket before touching any of t
 
 ```sh
 make phase0-accept                  # the Phase 0 gate: builds everything, then all of the below plus the negative fixtures
+make phase1-accept                  # the Phase 1 gate: kind cluster + two registries + msp-sync; ~5 min cold
+make crd-check                      # generated CRD/deepcopy drift
 cd msp && go test ./...             # Go unit tests
 PYTHONPATH=contract/sdk-python python3 -m pytest \
   contract/sdk-python/tests contract/examples/defect-cls/tests   # Python SDK + image smoke test
@@ -66,4 +73,5 @@ mvn -q -f contract/java/pom.xml verify                           # Java bindings
 and maven. It takes roughly 80s warm, a few minutes cold (the base image's
 `pip install`). It cleans up its containers and background processes on every
 exit path: success, `set -e` abort, and SIGINT/SIGTERM, which are routed through
-the exit trap.
+the exit trap. `make phase1-accept` additionally needs kind ≥ 0.27, kubectl
+and curl.
