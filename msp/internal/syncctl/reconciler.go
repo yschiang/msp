@@ -117,7 +117,8 @@ func (r *Reconciler) syncing(ctx context.Context, md *mspv1.ModelDeployment) (ct
 		}
 	}
 	// From here the tag is dead to the platform: every reference is @digest.
-	m, reason, err := r.manifestFor(ctx, md)
+	digest := md.Status.PinnedDigest
+	m, reason, err := r.manifestFor(ctx, digest, r.Registries.PinnedSourceRef(ref.Model, digest))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -132,16 +133,23 @@ func (r *Reconciler) syncing(ctx context.Context, md *mspv1.ModelDeployment) (ct
 	return r.setPhase(ctx, md, mspv1.PhaseConformanceRunning, "")
 }
 
-// manifestFor returns the pinned image's manifest, cached by digest (D13).
-// A missing or schema-invalid manifest is a verdict on the image and comes
-// back as reason (the same verdict msp-conform reaches as C1); err is
+// manifestFor returns the manifest of the image at ref, cached by digest
+// (D13). A missing or schema-invalid manifest is a verdict on the image and
+// comes back as reason (the same verdict msp-conform reaches as C1); err is
 // infrastructure only.
-func (r *Reconciler) manifestFor(ctx context.Context, md *mspv1.ModelDeployment) (*manifest.Manifest, string, error) {
-	digest := md.Status.PinnedDigest
+//
+// The caller picks ref because the two callers read different registries for
+// the same digest: syncing has to read model-center, the copy has not
+// happened yet; deploy reads the internal copy, which is byte-identical and
+// ours. A Deployed object whose cache went cold in a restart must not depend
+// on model-center still holding an image it may have deleted or retagged —
+// that is the drift the D8 copy exists to insulate against, and re-extracting
+// upstream would turn it into permanent backoff.
+func (r *Reconciler) manifestFor(ctx context.Context, digest, ref string) (*manifest.Manifest, string, error) {
 	if v, ok := r.manifests.Load(digest); ok {
 		return v.(*manifest.Manifest), "", nil
 	}
-	raw, err := r.ExtractManifest(ctx, r.Registries.PinnedSourceRef(md.Spec.ModelRef.Model, digest))
+	raw, err := r.ExtractManifest(ctx, ref)
 	if errors.Is(err, conformance.ErrNoManifest) {
 		return nil, err.Error(), nil
 	}
@@ -210,14 +218,16 @@ func conformanceStatus(rep *conformance.Report) mspv1.ConformanceStatus {
 }
 
 func (r *Reconciler) deploy(ctx context.Context, md *mspv1.ModelDeployment) (ctrl.Result, error) {
-	m, reason, err := r.manifestFor(ctx, md) // cache miss after a restart re-extracts (D13)
+	// Cache miss after a restart re-extracts — from our own copy (D13, D8).
+	image := r.Registries.InternalRef(md.Spec.ModelRef.Model, md.Status.PinnedDigest)
+	m, reason, err := r.manifestFor(ctx, md.Status.PinnedDigest, image)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if reason != "" { // cannot happen for a digest that reached Deployable; a guard, not a path
 		return r.setPhase(ctx, md, mspv1.PhaseRejected, reason)
 	}
-	dep, err := r.applyChildren(ctx, md, m, r.Registries.InternalRef(md.Spec.ModelRef.Model, md.Status.PinnedDigest))
+	dep, err := r.applyChildren(ctx, md, m, image)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

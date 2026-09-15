@@ -3,6 +3,7 @@ package syncctl
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -159,6 +160,31 @@ func TestHappyPathPinsRunsCopiesDeploys(t *testing.T) {
 		t.Fatal(err)
 	}
 	driveTo(t, r, c, md, mspv1.PhaseDeployable)
+}
+
+// A restart leaves a Deployed object with a cold manifest cache. The re-read
+// must come from our own copy, not from model-center, which may have deleted
+// or retagged the image by then (D8).
+func TestDeployReExtractsFromTheInternalRegistry(t *testing.T) {
+	md := newMD()
+	md.Status = mspv1.ModelDeploymentStatus{}
+	r, c := newReconciler(t, md)
+	driveTo(t, r, c, md, mspv1.PhaseDeployable)
+
+	fresh, _ := newReconciler(t) // a restarted controller: same cluster, empty cache
+	fresh.Client = c
+	var refs []string
+	fresh.ExtractManifest = func(_ context.Context, ref string) ([]byte, error) {
+		refs = append(refs, ref)
+		return []byte(exampleManifest), nil
+	}
+	if _, err := fresh.Reconcile(context.Background(), ctrl.Request{NamespacedName: key(md)}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"localhost:5011/defect-cls@" + goodDigest}
+	if !reflect.DeepEqual(refs, want) {
+		t.Errorf("ExtractManifest refs %v, want %v", refs, want)
+	}
 }
 
 func TestPresetDigestIsNeverReResolved(t *testing.T) {
