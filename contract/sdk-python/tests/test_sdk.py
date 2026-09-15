@@ -15,6 +15,7 @@ import grpc
 import pytest
 import yaml
 from google.protobuf import descriptor_pb2
+from grpc_health.v1 import health_pb2, health_pb2_grpc
 
 import msp
 from msp.example.v1 import defect_pb2
@@ -137,6 +138,43 @@ def _wait_ready(stub, timeout: float = 10.0) -> None:
             return
         time.sleep(0.02)
     raise AssertionError("server did not become ready within %ss" % timeout)
+
+
+class GatedModel(EchoModel):
+    """load() blocks until the test releases it, so both health surfaces can be
+    observed in the not-ready state."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = threading.Event()
+
+    def load(self) -> None:
+        self.gate.wait(timeout=10)
+        super().load()
+
+
+def _grpc_health(channel) -> int:
+    stub = health_pb2_grpc.HealthStub(channel)
+    return stub.Check(health_pb2.HealthCheckRequest(service="")).status
+
+
+def test_grpc_health_v1_mirrors_ready(tmp_path):
+    model = GatedModel()
+    stub, channel = _start(model, _write_manifest(tmp_path))
+    try:
+        # Server is up, load() has not returned: both surfaces say not ready.
+        assert stub.Health(pb.HealthRequest()).ready is False
+        assert _grpc_health(channel) == health_pb2.HealthCheckResponse.NOT_SERVING
+
+        model.gate.set()
+        _wait_ready(stub)
+        deadline = time.monotonic() + 10
+        while _grpc_health(channel) != health_pb2.HealthCheckResponse.SERVING:
+            assert time.monotonic() < deadline, "grpc.health.v1 never became SERVING"
+            time.sleep(0.02)
+    finally:
+        model.gate.set()
+        channel.close()
 
 
 @pytest.fixture(scope="module")

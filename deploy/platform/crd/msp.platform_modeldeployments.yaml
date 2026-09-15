@@ -1,0 +1,156 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.3
+  name: modeldeployments.msp.platform
+spec:
+  group: msp.platform
+  names:
+    kind: ModelDeployment
+    listKind: ModelDeploymentList
+    plural: modeldeployments
+    shortNames:
+    - md
+    singular: modeldeployment
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.pinnedDigest
+      name: Digest
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                description: Logical target, validated against the object's namespace
+                  (D14).
+                enum:
+                - blue
+                - green
+                type: string
+                x-kubernetes-validations:
+                - message: spec.cluster is immutable
+                  rule: self == oldSelf
+              modelRef:
+                description: |-
+                  ModelRef names a model image at a source registry. Digest is written once
+                  by the controller after resolution and is immutable afterwards (D5, D8).
+                  The type-level rule closes the hole the field-level one leaves: a rule on an
+                  optional field does not fire when the field is removed, so removing digest
+                  would otherwise unpin the object.
+                properties:
+                  digest:
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: spec.modelRef.digest is immutable once set
+                      rule: self == oldSelf
+                  model:
+                    minLength: 1
+                    type: string
+                    x-kubernetes-validations:
+                    - message: spec.modelRef.model is immutable
+                      rule: self == oldSelf
+                  source:
+                    description: |-
+                      The one source Phase 1 supports; --model-center-registry is its address.
+                      A source -> registry map replaces this enum when a second source exists (design D14).
+                    enum:
+                    - model-center
+                    type: string
+                    x-kubernetes-validations:
+                    - message: spec.modelRef.source is immutable
+                      rule: self == oldSelf
+                  version:
+                    minLength: 1
+                    type: string
+                    x-kubernetes-validations:
+                    - message: spec.modelRef.version is immutable
+                      rule: self == oldSelf
+                required:
+                - model
+                - source
+                - version
+                type: object
+                x-kubernetes-validations:
+                - message: spec.modelRef.digest cannot be removed once set
+                  rule: '!has(oldSelf.digest) || has(self.digest)'
+              replicas:
+                properties:
+                  max:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  min:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - max
+                - min
+                type: object
+                x-kubernetes-validations:
+                - message: replicas.max must be >= replicas.min
+                  rule: self.max >= self.min
+            required:
+            - cluster
+            - modelRef
+            - replicas
+            type: object
+          status:
+            properties:
+              conformance:
+                description: ConformanceStatus lists stable check IDs (C1…C7) by verdict.
+                properties:
+                  failed:
+                    items:
+                      type: string
+                    type: array
+                  passed:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              message:
+                description: Human-readable reason; populated on Rejected.
+                type: string
+              phase:
+                type: string
+              pinnedDigest:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

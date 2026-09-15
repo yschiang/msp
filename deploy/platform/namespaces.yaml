@@ -1,0 +1,11 @@
+# Namespace bootstrap for the blue/green split (spec §12 Q5, design D14).
+# Applied by tests/acceptance/phase1_test.sh; ArgoCD's platform app later.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: msp-blue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: msp-green

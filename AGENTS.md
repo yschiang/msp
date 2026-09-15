@@ -1,4 +1,4 @@
-# CLAUDE.md — workspace rules
+# AGENTS.md — workspace rules
 
 ## Rules
 - **Commits:** never add a `Co-Authored-By` trailer; keep messages concise and concrete.
