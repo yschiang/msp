@@ -1,0 +1,16 @@
+# The Phase 1 acceptance ModelDeployment (design §9 item 1). model/version
+# must equal the image manifest's model.name/model.version (D9); the
+# acceptance script publishes the example image as defect-cls:v1 for that
+# reason. digest is left empty: the controller pins it.
+apiVersion: msp.platform/v1
+kind: ModelDeployment
+metadata:
+  name: defect-cls-v1
+  namespace: msp-green
+spec:
+  modelRef:
+    source: model-center
+    model: defect-cls
+    version: v1
+  cluster: green
+  replicas: {min: 1, max: 2}

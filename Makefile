@@ -115,3 +115,33 @@ sync-schema:
 	cp $(SCHEMA_SRC) $(SCHEMA_DST)
 	@git diff --quiet -- $(SCHEMA_DST) || { \
 	  echo "schema drift: $(SCHEMA_DST) was stale and has been re-synced; commit it"; exit 1; }
+
+# controller-gen is run, not installed: `go run` pins the version and needs
+# nothing on PATH. Writes msp/api/v1/zz_generated.deepcopy.go and the CRD YAML
+# the acceptance script applies. Both are committed; crd-check guards drift the
+# same way proto-check does.
+CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.3
+CRD_PATHS := msp/api deploy/platform/crd
+
+.PHONY: crd
+crd:
+	cd msp && $(CONTROLLER_GEN) object paths=./api/...
+	cd msp && $(CONTROLLER_GEN) crd paths=./api/... output:crd:artifacts:config=../deploy/platform/crd
+
+.PHONY: crd-check
+crd-check: crd
+	@drift="$$(git status --porcelain -- $(CRD_PATHS))" || { \
+	  echo "crd-check: git status failed, so generated-CRD drift cannot be verified -- failing closed."; \
+	  exit 1; \
+	}; \
+	if [ -n "$$drift" ]; then \
+	  echo "generated-CRD drift: regenerating changed committed artifacts:"; \
+	  echo "$$drift"; \
+	  echo "Run make crd and commit the result."; \
+	  exit 1; \
+	fi
+
+# The Phase 1 acceptance gate (MSP-SPEC-001 §11 Phase 1 + design §9).
+.PHONY: phase1-accept
+phase1-accept:
+	bash tests/acceptance/phase1_test.sh
