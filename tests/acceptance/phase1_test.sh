@@ -58,15 +58,16 @@ remove_labelled_containers() {
 }
 
 cleanup() {
+	trap '' INT TERM # a second Ctrl-C must not leave the registries behind
 	set +e
 	if [ -n "$SYNC_PID" ]; then
 		kill "$SYNC_PID" >/dev/null 2>&1
 		wait "$SYNC_PID" >/dev/null 2>&1
 	fi
+	remove_labelled_containers # cheap and always wanted; the cluster takes longer
 	if [ -n "$CREATED_CLUSTER" ]; then
 		kind delete cluster --name "$CLUSTER" >/dev/null 2>&1
 	fi
-	remove_labelled_containers
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -152,7 +153,6 @@ docker network connect kind "$INT_REG" 2>/dev/null || true
 # containerd only reads certs.d when config_path says so, and kind's default
 # config does not set it (kind's recipe patches it at cluster creation, which
 # a reused cluster would miss). Append it once per node, then restart.
-RESTARTED=""
 for node in $(kind get nodes --name "$CLUSTER"); do
 	docker exec "$node" mkdir -p "/etc/containerd/certs.d/$INT_REG_HOST"
 	printf '[host."http://%s:5000"]\n' "$INT_REG" |
@@ -160,14 +160,17 @@ for node in $(kind get nodes --name "$CLUSTER"); do
 	if ! docker exec "$node" grep -q '/etc/containerd/certs.d' /etc/containerd/config.toml; then
 		printf '\n[plugins."io.containerd.grpc.v1.cri".registry]\n  config_path = "/etc/containerd/certs.d"\n' |
 			docker exec -i "$node" tee -a /etc/containerd/config.toml >/dev/null
-		docker exec "$node" systemctl restart containerd
-		RESTARTED=1
+		docker exec "$node" systemctl restart containerd ||
+			fail "containerd restart failed on $node"
+		# The node's Ready condition lags and can still read True from before the
+		# restart, so ask the runtime itself.
+		for i in $(seq 1 30); do
+			docker exec "$node" systemctl is-active --quiet containerd && break
+			[ "$i" -lt 30 ] || fail "containerd never came back on $node"
+			sleep 1
+		done
 	fi
 done
-if [ -n "$RESTARTED" ]; then
-	k wait --for=condition=Ready node --all --timeout=120s >/dev/null ||
-		fail "nodes did not come back Ready after the containerd restart"
-fi
 
 # ------------------------------------------------------------------ step 3 --
 
@@ -176,6 +179,11 @@ k apply -f deploy/platform/namespaces.yaml
 k apply -f deploy/platform/crd/
 k wait --for=condition=Established crd/modeldeployments.msp.platform --timeout=60s
 k delete modeldeployment -n "$NS" --all --ignore-not-found >/dev/null # leftovers from an interrupted run
+# ...and their pods, so the `.items[0]` lookup in step 5 cannot read one of them.
+if k get pods -n "$NS" -l msp.platform/deployment --no-headers 2>/dev/null | grep -q .; then
+	k wait --for=delete pod -n "$NS" -l msp.platform/deployment --timeout=90s >/dev/null ||
+		fail "pods from an earlier run never terminated"
+fi
 
 # ------------------------------------------------------------------ step 4 --
 
@@ -216,9 +224,19 @@ docker push "$MC_REG_HOST/defect-cls:v1" >"$WORK/push2.log" 2>&1 || { cat "$WORK
 NEW_TAG_DIGEST="$(registry_digest "$MC_REG_HOST" defect-cls v1)"
 [ "$NEW_TAG_DIGEST" != "$GOOD_DIGEST" ] || fail "tag overwrite did not change the model-center digest; the test proves nothing"
 echo "  model-center defect-cls:v1 is now $NEW_TAG_DIGEST"
-# Poke the object so the controller reconciles it again with the tag moved.
-k annotate modeldeployment -n "$NS" "$CR_NAME" "msp.platform/poke=$(date +%s)" --overwrite >/dev/null
-sleep 10
+# Make the controller look at the object again, with a change it must carry
+# into a child object: once the HPA reports the new maximum, a reconcile has
+# demonstrably run through deploy() with the tag moved, so the assertions below
+# cannot pass merely because nothing happened.
+k patch modeldeployment -n "$NS" "$CR_NAME" --type merge -p '{"spec":{"replicas":{"max":3}}}' >/dev/null
+hpa_max() { k get hpa -n "$NS" "$CR_NAME" -o 'jsonpath={.spec.maxReplicas}' 2>/dev/null; }
+deadline=$(($(date +%s) + 60))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+	if [ "$(hpa_max)" = "3" ]; then break; fi
+	sleep 2
+done
+[ "$(hpa_max)" = "3" ] || fail "no reconcile observed after the tag moved (HPA maxReplicas is $(hpa_max), want 3)"
+echo "  reconciled after the tag moved: HPA maxReplicas=3"
 [ "$(md_field "$CR_NAME" '{.status.pinnedDigest}')" = "$PINNED" ] || fail "pinned digest changed after the tag moved"
 [ "$(md_field "$CR_NAME" '{.status.phase}')" = "Deployed" ] || fail "phase left Deployed after the tag moved"
 DEP_IMAGE="$(k get deployment -n "$NS" "$CR_NAME" -o 'jsonpath={.spec.template.spec.containers[0].image}')"
